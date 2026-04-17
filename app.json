@@ -47,7 +47,7 @@
       "apiUrl": "https://vya-backend-production.up.railway.app",
       "router": {},
       "eas": {
-        "projectId": ""
+        "projectId": "57bcb43d-67c5-436e-bde4-760a8ec8a340"
       }
     },
     "owner": "joshuakgwathla"
