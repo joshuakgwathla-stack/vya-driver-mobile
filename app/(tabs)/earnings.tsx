@@ -17,129 +17,153 @@ type Period = typeof PERIODS[number]['key']
 
 export default function EarningsScreen() {
   const [period, setPeriod] = useState<Period>('week')
-  const [data, setData] = useState<any>(null)
+  const [rawData, setRawData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
-  useEffect(() => { load() }, [period])
+  useEffect(() => { load() }, [])
 
   const load = async () => {
     try {
       const { data: res } = await driverApi.getEarnings()
-      // Backend returns { summary, monthly, recent_trips } — map to period-based view
-      const summary = res.data?.summary || {}
-      const periodTotal =
-        period === 'today' ? summary.today :
-        period === 'week' ? summary.this_week :
-        period === 'month' ? summary.this_month :
-        summary.total_earnings
-      setData({
-        total_earnings: periodTotal || 0,
-        trip_count: period === 'all' ? summary.total_trips : undefined,
-        passenger_count: period === 'all' ? summary.total_bookings : undefined,
-        trips: res.data?.recent_trips?.map((t: any) => ({
-          ...t,
-          earnings: t.trip_earnings,
-          passenger_count: t.passengers,
-        })) || [],
-        monthly: res.data?.monthly || [],
-      })
+      setRawData(res.data || {})
     } catch {}
     finally { setLoading(false); setRefreshing(false) }
   }
 
   const onRefresh = () => { setRefreshing(true); load() }
 
+  const summary = rawData?.summary || {}
+  const recentTrips = (rawData?.recent_trips || []).map((t: any) => ({
+    ...t,
+    earnings: t.trip_earnings,
+    passenger_count: t.passengers,
+  }))
+
+  const periodTotal = (() => {
+    if (period === 'today') return summary.today || 0
+    if (period === 'week') return summary.this_week || 0
+    if (period === 'month') return summary.this_month || 0
+    return summary.total_earnings || 0
+  })()
+
+  const totalTrips = summary.total_trips || 0
+  const totalPassengers = summary.total_bookings || 0
+  const avgPerTrip = totalTrips > 0
+    ? (Number(summary.total_earnings || 0) / totalTrips).toFixed(0)
+    : '0'
+
   return (
     <SafeAreaView style={styles.safe}>
+      {/* Navy header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Earnings</Text>
+        <Text style={styles.headerSub}>Your income breakdown</Text>
+      </View>
+
       <ScrollView
         contentContainerStyle={styles.scroll}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.gold} />}
+        showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.pageTitle}>Earnings</Text>
-
-        {/* Period tabs */}
-        <View style={styles.tabs}>
+        {/* Period pills */}
+        <View style={styles.periodRow}>
           {PERIODS.map(p => (
             <TouchableOpacity
               key={p.key}
-              style={[styles.tab, period === p.key && styles.tabActive]}
+              style={[styles.periodBtn, period === p.key && styles.periodBtnActive]}
               onPress={() => setPeriod(p.key)}
             >
-              <Text style={[styles.tabText, period === p.key && styles.tabTextActive]}>{p.label}</Text>
+              <Text style={[styles.periodText, period === p.key && styles.periodTextActive]}>
+                {p.label}
+              </Text>
             </TouchableOpacity>
           ))}
         </View>
 
         {loading ? (
           <View style={styles.center}>
-            <ActivityIndicator color={COLORS.navy} />
+            <ActivityIndicator color={COLORS.navy} size="large" />
           </View>
         ) : (
           <>
-            {/* Summary */}
-            <View style={styles.summaryCard}>
-              <Text style={styles.summaryLabel}>Total Earned</Text>
-              <Text style={styles.summaryAmount}>R{Number(data?.total_earnings || 0).toFixed(2)}</Text>
-              <View style={styles.summaryRow}>
-                <View style={styles.summaryItem}>
-                  <Text style={styles.summaryItemValue}>{data?.trip_count || 0}</Text>
-                  <Text style={styles.summaryItemLabel}>Trips</Text>
+            {/* Hero earnings card */}
+            <View style={styles.heroCard}>
+              <Text style={styles.heroLabel}>
+                {period === 'today' ? 'Earned Today' :
+                 period === 'week' ? 'Earned This Week' :
+                 period === 'month' ? 'Earned This Month' : 'Total Earned'}
+              </Text>
+              <Text style={styles.heroAmount}>
+                R{Number(periodTotal).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </Text>
+
+              <View style={styles.heroStats}>
+                <View style={styles.heroStat}>
+                  <Text style={styles.heroStatValue}>{totalTrips}</Text>
+                  <Text style={styles.heroStatLabel}>Trips</Text>
                 </View>
-                <View style={styles.summaryDivider} />
-                <View style={styles.summaryItem}>
-                  <Text style={styles.summaryItemValue}>{data?.passenger_count || 0}</Text>
-                  <Text style={styles.summaryItemLabel}>Passengers</Text>
+                <View style={styles.heroStatDivider} />
+                <View style={styles.heroStat}>
+                  <Text style={styles.heroStatValue}>{totalPassengers}</Text>
+                  <Text style={styles.heroStatLabel}>Passengers</Text>
                 </View>
-                <View style={styles.summaryDivider} />
-                <View style={styles.summaryItem}>
-                  <Text style={styles.summaryItemValue}>
-                    R{data?.trip_count ? (Number(data.total_earnings) / data.trip_count).toFixed(0) : '0'}
-                  </Text>
-                  <Text style={styles.summaryItemLabel}>Avg/Trip</Text>
+                <View style={styles.heroStatDivider} />
+                <View style={styles.heroStat}>
+                  <Text style={styles.heroStatValue}>R{avgPerTrip}</Text>
+                  <Text style={styles.heroStatLabel}>Avg / Trip</Text>
                 </View>
               </View>
             </View>
 
-            {/* Per-trip breakdown */}
-            {data?.trips?.length > 0 && (
+            {/* Payout info strip */}
+            <View style={styles.payoutStrip}>
+              <Text style={styles.payoutIcon}>🏦</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.payoutTitle}>Weekly EFT Payouts</Text>
+                <Text style={styles.payoutBody}>Paid to your registered bank account every week. Contact support to update banking details.</Text>
+              </View>
+            </View>
+
+            {/* Recent trip breakdown */}
+            {recentTrips.length > 0 && (
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Trip Breakdown</Text>
-                {data.trips.map((t: any) => {
+                <Text style={styles.sectionTitle}>Recent Trips</Text>
+                {recentTrips.map((t: any) => {
                   const dep = new Date(t.departure_time)
+                  const today = new Date().toISOString().split('T')[0]
+                  const isToday = dep.toISOString().split('T')[0] === today
                   return (
-                    <View key={t.id} style={styles.tripCard}>
-                      <View style={styles.tripLeft}>
-                        <Text style={styles.tripRoute}>{t.origin_city} → {t.destination_city}</Text>
-                        <Text style={styles.tripDate}>
-                          {dep.toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' })}
-                          {' · '}
+                    <View key={t.id} style={styles.tripRow}>
+                      <View style={styles.tripTimeCol}>
+                        <Text style={styles.tripTime}>
                           {dep.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit', hour12: false })}
                         </Text>
+                        <Text style={styles.tripDay}>
+                          {isToday ? 'Today' : dep.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' })}
+                        </Text>
+                      </View>
+                      <View style={styles.tripDivider} />
+                      <View style={styles.tripInfo}>
+                        <Text style={styles.tripRoute}>{t.origin_city} → {t.destination_city}</Text>
                         <Text style={styles.tripPax}>👥 {t.passenger_count || 0} passengers</Text>
                       </View>
-                      <Text style={styles.tripEarnings}>R{Number(t.earnings || 0).toFixed(2)}</Text>
+                      <Text style={styles.tripEarnings}>
+                        R{Number(t.earnings || 0).toFixed(0)}
+                      </Text>
                     </View>
                   )
                 })}
               </View>
             )}
 
-            {(!data?.trips || data.trips.length === 0) && (
+            {recentTrips.length === 0 && (
               <View style={styles.empty}>
                 <Text style={styles.emptyIcon}>💰</Text>
-                <Text style={styles.emptyText}>No earnings yet</Text>
-                <Text style={styles.emptyHint}>Complete trips to see your earnings here</Text>
+                <Text style={styles.emptyTitle}>No earnings yet</Text>
+                <Text style={styles.emptyText}>Complete trips to see your earnings here</Text>
               </View>
             )}
-
-            {/* Payout info */}
-            <View style={styles.payoutCard}>
-              <Text style={styles.payoutTitle}>Payouts</Text>
-              <Text style={styles.payoutText}>
-                Earnings are paid out weekly via EFT to your registered bank account. Contact support to update banking details.
-              </Text>
-            </View>
           </>
         )}
       </ScrollView>
@@ -149,47 +173,70 @@ export default function EarningsScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.offWhite },
-  scroll: { padding: 20, gap: 16, paddingBottom: 40 },
-  pageTitle: { fontSize: 24, fontWeight: '800', color: COLORS.navy, paddingTop: Platform.OS === 'android' ? 28 : 0 },
-  tabs: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  tab: {
-    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+
+  header: {
+    backgroundColor: COLORS.navy,
+    paddingHorizontal: 20, paddingBottom: 20,
+    paddingTop: Platform.OS === 'android' ? 48 : 20,
+  },
+  headerTitle: { fontSize: 24, fontWeight: '900', color: COLORS.white },
+  headerSub: { fontSize: 13, color: 'rgba(255,255,255,0.55)', marginTop: 2 },
+
+  scroll: { padding: 16, gap: 16, paddingBottom: 40 },
+
+  periodRow: { flexDirection: 'row', gap: 8 },
+  periodBtn: {
+    flex: 1, paddingVertical: 9, borderRadius: 22, alignItems: 'center',
     backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.border,
   },
-  tabActive: { backgroundColor: COLORS.navy, borderColor: COLORS.navy },
-  tabText: { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary },
-  tabTextActive: { color: COLORS.white },
-  center: { paddingVertical: 40, alignItems: 'center' },
-  summaryCard: {
-    backgroundColor: COLORS.navy, borderRadius: 20, padding: 22, gap: 12,
+  periodBtnActive: { backgroundColor: COLORS.navy, borderColor: COLORS.navy },
+  periodText: { fontSize: 12, fontWeight: '600', color: COLORS.textSecondary },
+  periodTextActive: { color: COLORS.white, fontWeight: '700' },
+
+  center: { paddingVertical: 60, alignItems: 'center' },
+
+  heroCard: {
+    backgroundColor: COLORS.navy, borderRadius: 20, padding: 22, gap: 14,
   },
-  summaryLabel: { fontSize: 13, color: 'rgba(255,255,255,0.5)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
-  summaryAmount: { fontSize: 38, fontWeight: '900', color: COLORS.gold },
-  summaryRow: { flexDirection: 'row', alignItems: 'center' },
-  summaryItem: { flex: 1, alignItems: 'center', gap: 2 },
-  summaryItemValue: { fontSize: 18, fontWeight: '700', color: COLORS.white },
-  summaryItemLabel: { fontSize: 11, color: 'rgba(255,255,255,0.5)' },
-  summaryDivider: { width: 1, height: 30, backgroundColor: 'rgba(255,255,255,0.15)' },
-  section: { gap: 8 },
-  sectionTitle: { fontSize: 13, fontWeight: '700', color: COLORS.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5 },
-  tripCard: {
-    backgroundColor: COLORS.white, borderRadius: 12, padding: 14,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  heroLabel: {
+    fontSize: 12, fontWeight: '700', color: 'rgba(255,255,255,0.5)',
+    textTransform: 'uppercase', letterSpacing: 0.5,
+  },
+  heroAmount: { fontSize: 40, fontWeight: '900', color: COLORS.gold, letterSpacing: -1 },
+  heroStats: { flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)', paddingTop: 14 },
+  heroStat: { flex: 1, alignItems: 'center', gap: 3 },
+  heroStatValue: { fontSize: 20, fontWeight: '800', color: COLORS.white },
+  heroStatLabel: { fontSize: 10, color: 'rgba(255,255,255,0.45)' },
+  heroStatDivider: { width: 1, height: 32, backgroundColor: 'rgba(255,255,255,0.15)' },
+
+  payoutStrip: {
+    flexDirection: 'row', gap: 12, alignItems: 'flex-start',
+    backgroundColor: COLORS.warningLight, borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: COLORS.warning + '55',
+  },
+  payoutIcon: { fontSize: 22 },
+  payoutTitle: { fontSize: 13, fontWeight: '700', color: '#92400e' },
+  payoutBody: { fontSize: 12, color: '#78350f', lineHeight: 18, marginTop: 2 },
+
+  section: { gap: 10 },
+  sectionTitle: { fontSize: 12, fontWeight: '700', color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
+
+  tripRow: {
+    backgroundColor: COLORS.white, borderRadius: 14, padding: 14,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
     borderWidth: 1, borderColor: COLORS.border,
   },
-  tripLeft: { gap: 3, flex: 1 },
+  tripTimeCol: { alignItems: 'center', width: 46 },
+  tripTime: { fontSize: 14, fontWeight: '900', color: COLORS.navy },
+  tripDay: { fontSize: 10, color: COLORS.textMuted, marginTop: 1 },
+  tripDivider: { width: 1, height: 32, backgroundColor: COLORS.border },
+  tripInfo: { flex: 1 },
   tripRoute: { fontSize: 14, fontWeight: '700', color: COLORS.navy },
-  tripDate: { fontSize: 12, color: COLORS.textSecondary },
-  tripPax: { fontSize: 12, color: COLORS.textMuted },
-  tripEarnings: { fontSize: 16, fontWeight: '800', color: COLORS.success },
-  empty: { alignItems: 'center', padding: 40, gap: 8 },
-  emptyIcon: { fontSize: 40 },
-  emptyText: { fontSize: 16, fontWeight: '700', color: COLORS.navy },
-  emptyHint: { fontSize: 13, color: COLORS.textSecondary, textAlign: 'center' },
-  payoutCard: {
-    backgroundColor: COLORS.warningLight, borderRadius: 14, padding: 16, gap: 8,
-    borderWidth: 1, borderColor: COLORS.warning + '44',
-  },
-  payoutTitle: { fontSize: 14, fontWeight: '700', color: '#92400e' },
-  payoutText: { fontSize: 13, color: '#78350f', lineHeight: 18 },
+  tripPax: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
+  tripEarnings: { fontSize: 17, fontWeight: '900', color: COLORS.success },
+
+  empty: { alignItems: 'center', padding: 50, gap: 8 },
+  emptyIcon: { fontSize: 48 },
+  emptyTitle: { fontSize: 17, fontWeight: '700', color: COLORS.navy },
+  emptyText: { fontSize: 13, color: COLORS.textSecondary },
 })
