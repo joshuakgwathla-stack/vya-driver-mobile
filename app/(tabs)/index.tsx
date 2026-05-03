@@ -16,14 +16,14 @@ function getTimeOfDay() {
 }
 
 function statusColor(s: string) {
-  if (s === 'in_progress') return COLORS.success
+  if (s === 'active') return COLORS.success
   if (s === 'scheduled' || s === 'confirmed') return COLORS.warning
   if (s === 'completed') return COLORS.textMuted
   return COLORS.textMuted
 }
 
 function statusLabel(s: string) {
-  if (s === 'in_progress') return 'In Progress'
+  if (s === 'active') return 'In Progress'
   if (s === 'scheduled') return 'Scheduled'
   if (s === 'confirmed') return 'Confirmed'
   if (s === 'completed') return 'Completed'
@@ -67,7 +67,7 @@ export default function HomeScreen() {
 
   const onRefresh = () => { setRefreshing(true); loadAll() }
 
-  const activeTrip = todayTrips.find(t => t.status === 'in_progress')
+  const activeTrip = todayTrips.find(t => t.status === 'active')
   const nextTrip = todayTrips.find(t => t.status === 'scheduled' || t.status === 'confirmed')
   const doneToday = todayTrips.filter(t => t.status === 'completed').length
   const upcomingCount = todayTrips.filter(t => ['scheduled', 'confirmed'].includes(t.status)).length
@@ -191,7 +191,7 @@ export default function HomeScreen() {
             {todayTrips.map(t => {
               const dep = new Date(t.departure_time)
               const sc = statusColor(t.status)
-              const isActive = t.status === 'in_progress'
+              const isActive = t.status === 'active'
               return (
                 <TouchableOpacity
                   key={t.id}

@@ -50,6 +50,8 @@ export const driverApi = {
   updateProfile: (data: FormData) =>
     api.patch('/driver/profile', data, { headers: { 'Content-Type': 'multipart/form-data' } }),
   getVehicles: () => api.get('/driver/vehicles'),
+  addVehicle: (data: FormData) =>
+    api.post('/driver/vehicles', data, { headers: { 'Content-Type': 'multipart/form-data' } }),
   updateVehicle: (id: string, data: FormData) =>
     api.patch(`/driver/vehicles/${id}`, data, { headers: { 'Content-Type': 'multipart/form-data' } }),
   getEarnings: (params?: any) => api.get('/driver/earnings', { params }),

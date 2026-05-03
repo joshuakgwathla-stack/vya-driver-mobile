@@ -1,26 +1,28 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
   TouchableOpacity, Alert, ActivityIndicator, Platform,
+  TextInput,
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { tripsApi } from '../../lib/api'
+import api from '../../lib/api'
 import { COLORS } from '../../constants'
 
 const STATUS_FLOW: Record<string, { next: string; label: string }> = {
-  scheduled:   { next: 'in_progress', label: 'Start Trip' },
-  confirmed:   { next: 'in_progress', label: 'Start Trip' },
-  in_progress: { next: 'completed',   label: 'Complete Trip' },
+  scheduled: { next: 'active', label: 'Start Trip' },
+  confirmed: { next: 'active', label: 'Start Trip' },
+  active:    { next: 'completed', label: 'Complete Trip' },
 }
 
 function statusColor(s: string) {
-  if (s === 'in_progress') return COLORS.success
+  if (s === 'active') return COLORS.success
   if (s === 'scheduled' || s === 'confirmed') return COLORS.warning
   return COLORS.textMuted
 }
 
 function statusLabel(s: string) {
-  if (s === 'in_progress') return 'In Progress'
+  if (s === 'active') return 'In Progress'
   if (s === 'scheduled') return 'Scheduled'
   if (s === 'confirmed') return 'Confirmed'
   if (s === 'completed') return 'Completed'
@@ -34,6 +36,9 @@ export default function TripDetailScreen() {
   const [passengers, setPassengers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
+  const [pickupCode, setPickupCode] = useState('')
+  const [validating, setValidating] = useState(false)
+  const codeInputRef = useRef<TextInput>(null)
 
   useEffect(() => { loadAll() }, [id])
 
@@ -77,6 +82,29 @@ export default function TripDetailScreen() {
     )
   }
 
+  const handleValidatePickup = async () => {
+    const code = pickupCode.trim().toUpperCase()
+    if (!code) return
+    setValidating(true)
+    try {
+      const { data } = await api.post(`/driver/trips/${id}/validate-pickup`, { code })
+      const result = data.data
+      if (result.already_boarded) {
+        Alert.alert('Already boarded', `${result.passenger_name} was already checked in.`)
+      } else {
+        Alert.alert('✅ Boarded!', `${result.passenger_name} — ${result.seats} seat${result.seats !== 1 ? 's' : ''}\n📍 ${result.pickup_address || 'No address'}`)
+        await loadAll()
+      }
+      setPickupCode('')
+      codeInputRef.current?.blur()
+    } catch (err: any) {
+      const msg = err.response?.data?.message || 'Invalid code'
+      Alert.alert('Not found', msg)
+    } finally {
+      setValidating(false)
+    }
+  }
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -93,7 +121,7 @@ export default function TripDetailScreen() {
   const confirmedPax = passengers.filter(p => p.payment_status === 'paid')
   const pendingPax = passengers.filter(p => p.payment_status !== 'paid')
   const sc = statusColor(trip.status)
-  const isActive = trip.status === 'in_progress'
+  const isActive = trip.status === 'active'
   const isCompleted = trip.status === 'completed'
 
   return (
@@ -159,6 +187,40 @@ export default function TripDetailScreen() {
             </View>
           </View>
         </View>
+
+        {/* Pickup code validator — only during active trip */}
+        {isActive && (
+          <View style={styles.validatorCard}>
+            <Text style={styles.validatorTitle}>🎫 Validate Boarding</Text>
+            <Text style={styles.validatorSub}>Enter the passenger's pickup code to check them in</Text>
+            <View style={styles.validatorRow}>
+              <TextInput
+                ref={codeInputRef}
+                style={styles.codeInput}
+                value={pickupCode}
+                onChangeText={t => setPickupCode(t.toUpperCase())}
+                placeholder="e.g. AB1234"
+                placeholderTextColor={COLORS.textMuted}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                maxLength={10}
+                returnKeyType="done"
+                onSubmitEditing={handleValidatePickup}
+              />
+              <TouchableOpacity
+                style={[styles.validateBtn, (!pickupCode.trim() || validating) && { opacity: 0.5 }]}
+                onPress={handleValidatePickup}
+                disabled={!pickupCode.trim() || validating}
+                activeOpacity={0.85}
+              >
+                {validating
+                  ? <ActivityIndicator color="white" size="small" />
+                  : <Text style={styles.validateBtnText}>Check In</Text>
+                }
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* Completed banner */}
         {isCompleted && (
@@ -374,6 +436,27 @@ const styles = StyleSheet.create({
   emptyIcon: { fontSize: 44 },
   emptyTitle: { fontSize: 16, fontWeight: '700', color: COLORS.navy },
   emptyText: { fontSize: 13, color: COLORS.textSecondary, textAlign: 'center', lineHeight: 18 },
+
+  // Pickup validator
+  validatorCard: {
+    backgroundColor: COLORS.white, borderRadius: 16, padding: 16, gap: 10,
+    borderWidth: 1, borderColor: COLORS.success + '55',
+  },
+  validatorTitle: { fontSize: 15, fontWeight: '800', color: COLORS.navy },
+  validatorSub: { fontSize: 12, color: COLORS.textSecondary },
+  validatorRow: { flexDirection: 'row', gap: 10 },
+  codeInput: {
+    flex: 1, height: 48, borderRadius: 12,
+    borderWidth: 1.5, borderColor: COLORS.border,
+    paddingHorizontal: 14, fontSize: 18, fontWeight: '800',
+    color: COLORS.navy, letterSpacing: 2,
+    backgroundColor: COLORS.offWhite,
+  },
+  validateBtn: {
+    height: 48, paddingHorizontal: 18, borderRadius: 12,
+    backgroundColor: COLORS.success, alignItems: 'center', justifyContent: 'center',
+  },
+  validateBtnText: { fontSize: 14, fontWeight: '800', color: 'white' },
 
   // Sticky action bar
   actionBar: {

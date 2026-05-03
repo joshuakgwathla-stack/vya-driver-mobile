@@ -30,6 +30,16 @@ export default function ProfileScreen() {
   const [vehicles, setVehicles] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [showAddVehicle, setShowAddVehicle] = useState(false)
+  const [addingVehicle, setAddingVehicle] = useState(false)
+
+  // Add vehicle form
+  const [vMake, setVMake] = useState('')
+  const [vModel, setVModel] = useState('')
+  const [vYear, setVYear] = useState('')
+  const [vColor, setVColor] = useState('')
+  const [vRegNumber, setVRegNumber] = useState('')
+  const [vCapacity, setVCapacity] = useState('')
 
   // Profile form
   const [firstName, setFirstName] = useState('')
@@ -113,6 +123,33 @@ export default function ProfileScreen() {
     } catch (err: any) {
       Alert.alert('Error', err.response?.data?.message || 'Save failed')
     } finally { setSaving(false) }
+  }
+
+  const handleAddVehicle = async () => {
+    const cap = parseInt(vCapacity, 10)
+    if (!vMake.trim() || !vModel.trim() || !vYear.trim() || !vColor.trim() || !vRegNumber.trim()) {
+      return Alert.alert('Missing Fields', 'Please fill in all vehicle details.')
+    }
+    if (!vCapacity || isNaN(cap) || cap < 2 || cap > 35) {
+      return Alert.alert('Invalid Capacity', 'Seat capacity must be between 2 and 35.')
+    }
+    setAddingVehicle(true)
+    try {
+      const fd = new FormData()
+      fd.append('make', vMake.trim())
+      fd.append('model', vModel.trim())
+      fd.append('year', vYear.trim())
+      fd.append('color', vColor.trim())
+      fd.append('registration_number', vRegNumber.trim().toUpperCase())
+      fd.append('capacity', String(cap))
+      await driverApi.addVehicle(fd)
+      setShowAddVehicle(false)
+      setVMake(''); setVModel(''); setVYear(''); setVColor(''); setVRegNumber(''); setVCapacity('')
+      await loadAll()
+      Alert.alert('Vehicle Added', 'Your vehicle has been registered successfully.')
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to add vehicle.')
+    } finally { setAddingVehicle(false) }
   }
 
   const handleLogout = () => {
@@ -307,9 +344,45 @@ export default function ProfileScreen() {
               <VehicleDocCard key={v.id} vehicle={v} onSaved={loadAll} />
             ))}
 
-            {vehicles.length === 0 && (
-              <View style={styles.emptyDocs}>
-                <Text style={styles.emptyDocsText}>No vehicle registered yet. Complete your driver profile on the web platform first.</Text>
+            {/* Add Vehicle */}
+            {!showAddVehicle ? (
+              <TouchableOpacity style={styles.addVehicleBtn} onPress={() => setShowAddVehicle(true)}>
+                <Text style={styles.addVehicleBtnText}>+ Add Vehicle</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Register a Vehicle</Text>
+                <Text style={styles.cardHint}>Seat capacity determines how many passengers you can carry</Text>
+                {[
+                  { label: 'Make (e.g. Toyota)', value: vMake, set: setVMake, caps: 'words' as const },
+                  { label: 'Model (e.g. Quantum)', value: vModel, set: setVModel, caps: 'words' as const },
+                  { label: 'Year (e.g. 2019)', value: vYear, set: setVYear, keyboard: 'numeric' as const },
+                  { label: 'Color', value: vColor, set: setVColor, caps: 'words' as const },
+                  { label: 'Registration Number (e.g. GP 123 ABC)', value: vRegNumber, set: setVRegNumber, caps: 'characters' as const },
+                  { label: 'Seat Capacity (2–35)', value: vCapacity, set: setVCapacity, keyboard: 'numeric' as const, placeholder: '15' },
+                ].map(f => (
+                  <View key={f.label} style={styles.field}>
+                    <Text style={styles.fieldLabel}>{f.label}</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={f.value}
+                      onChangeText={f.set}
+                      keyboardType={f.keyboard || 'default'}
+                      autoCapitalize={f.caps || 'none'}
+                      placeholder={f.placeholder || ''}
+                      placeholderTextColor={COLORS.textMuted}
+                    />
+                  </View>
+                ))}
+                <TouchableOpacity style={styles.saveBtn} onPress={handleAddVehicle} disabled={addingVehicle}>
+                  {addingVehicle
+                    ? <ActivityIndicator color={COLORS.navy} />
+                    : <Text style={styles.saveBtnText}>Register Vehicle</Text>
+                  }
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowAddVehicle(false)}>
+                  <Text style={styles.cancelBtnText}>Cancel</Text>
+                </TouchableOpacity>
               </View>
             )}
           </>
@@ -438,9 +511,15 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.dangerLight, borderWidth: 1, borderColor: '#fca5a5',
   },
   logoutBtnText: { fontSize: 14, fontWeight: '700', color: COLORS.danger },
-  emptyDocs: {
-    backgroundColor: COLORS.white, borderRadius: 14, padding: 18,
-    borderWidth: 1, borderColor: COLORS.border,
+  addVehicleBtn: {
+    borderRadius: 12, padding: 14, alignItems: 'center',
+    borderWidth: 2, borderColor: COLORS.navy, borderStyle: 'dashed',
+    backgroundColor: COLORS.white,
   },
-  emptyDocsText: { fontSize: 13, color: COLORS.textSecondary, lineHeight: 18 },
+  addVehicleBtnText: { fontSize: 14, fontWeight: '700', color: COLORS.navy },
+  cancelBtn: {
+    borderRadius: 12, padding: 14, alignItems: 'center',
+    backgroundColor: COLORS.offWhite, borderWidth: 1, borderColor: COLORS.border,
+  },
+  cancelBtnText: { fontSize: 14, fontWeight: '600', color: COLORS.textSecondary },
 })

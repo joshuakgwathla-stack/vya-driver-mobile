@@ -9,7 +9,7 @@ import { COLORS } from '../../constants'
 
 const FILTERS = [
   { key: 'upcoming', label: 'Upcoming' },
-  { key: 'in_progress', label: 'Active' },
+  { key: 'active', label: 'Active' },
   { key: 'completed', label: 'Done' },
   { key: 'all', label: 'All' },
 ] as const
@@ -17,13 +17,13 @@ const FILTERS = [
 type Filter = typeof FILTERS[number]['key']
 
 function statusColor(s: string) {
-  if (s === 'in_progress') return COLORS.success
+  if (s === 'active') return COLORS.success
   if (s === 'scheduled' || s === 'confirmed') return COLORS.warning
   return COLORS.textMuted
 }
 
 function statusLabel(s: string) {
-  if (s === 'in_progress') return 'Active'
+  if (s === 'active') return 'Active'
   if (s === 'scheduled') return 'Scheduled'
   if (s === 'confirmed') return 'Confirmed'
   if (s === 'completed') return 'Done'
@@ -44,7 +44,7 @@ export default function TripsScreen() {
     try {
       const params: any = { limit: 30 }
       if (filter === 'upcoming') params.status = 'scheduled,confirmed'
-      else if (filter === 'in_progress') params.status = 'in_progress'
+      else if (filter === 'active') params.status = 'active'
       else if (filter === 'completed') params.status = 'completed'
       const { data } = await tripsApi.getMyTrips(params)
       setTrips(data.data || [])
@@ -57,7 +57,7 @@ export default function TripsScreen() {
   const renderTrip = ({ item: t }: { item: any }) => {
     const dep = new Date(t.departure_time)
     const sc = statusColor(t.status)
-    const isActive = t.status === 'in_progress'
+    const isActive = t.status === 'active'
     const today = new Date().toISOString().split('T')[0]
     const depDay = dep.toISOString().split('T')[0]
     const isToday = depDay === today

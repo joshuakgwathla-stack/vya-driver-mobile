@@ -116,8 +116,17 @@ export default function EarningsScreen() {
               </View>
             </View>
 
-            {/* Payout info strip */}
+            {/* Queue Marshall Fee info */}
             <View style={styles.payoutStrip}>
+              <Text style={styles.payoutIcon}>🚦</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.payoutTitle}>Queue Marshall Fee: 10%</Text>
+                <Text style={styles.payoutBody}>Vya keeps 10% of each trip as a queue marshall fee — like the marshal at a taxi rank who organises passengers. All amounts shown are already your net earnings.</Text>
+              </View>
+            </View>
+
+            {/* Payout info strip */}
+            <View style={[styles.payoutStrip, { marginTop: 8 }]}>
               <Text style={styles.payoutIcon}>🏦</Text>
               <View style={{ flex: 1 }}>
                 <Text style={styles.payoutTitle}>Weekly EFT Payouts</Text>

@@ -130,7 +130,15 @@ export default function QueueScreen() {
     new Date(q.departure_time).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit', hour12: false }) === slot
   )
 
-  const canJoin = selectedSlot && !alreadyQueued(selectedSlot) && vehicles.length > 0
+  // A slot is closed if departure is within 2 hours from now
+  const slotIsClosed = (slot: string) => {
+    const [h, m] = slot.split(':').map(Number)
+    const dep = new Date(selectedDate)
+    dep.setHours(h, m, 0, 0)
+    return (dep.getTime() - Date.now()) < 2 * 60 * 60 * 1000
+  }
+
+  const canJoin = selectedSlot && !alreadyQueued(selectedSlot) && !slotIsClosed(selectedSlot) && vehicles.length > 0
   const slotIsQueued = selectedSlot && alreadyQueued(selectedSlot)
 
   return (
@@ -151,7 +159,7 @@ export default function QueueScreen() {
             <Text style={styles.noVehicleIcon}>🚗</Text>
             <View style={{ flex: 1 }}>
               <Text style={styles.noVehicleTitle}>No vehicle registered</Text>
-              <Text style={styles.noVehicleText}>Add your vehicle on the web driver platform before joining the queue.</Text>
+              <Text style={styles.noVehicleText}>Go to Profile → Documents to add your vehicle before joining the queue.</Text>
             </View>
           </View>
         )}
@@ -227,12 +235,13 @@ export default function QueueScreen() {
             <Text style={styles.sectionLabel}>Time Slot</Text>
             {loadingOccupancy && <ActivityIndicator color={COLORS.navy} size="small" />}
           </View>
-          <Text style={styles.slotHint}>Gold badge = passengers waiting for this slot</Text>
+          <Text style={styles.slotHint}>Queue open anytime · closes 2 hours before departure · 🟡 = passengers waiting</Text>
           <View style={styles.slotGrid}>
             {TIME_SLOTS.map(slot => {
               const info = getSlotInfo(slot)
               const isSelected = selectedSlot === slot
               const isQueued = alreadyQueued(slot)
+              const isClosed = slotIsClosed(slot)
               const paxWaiting = info.passengers_waiting || 0
               return (
                 <TouchableOpacity
@@ -241,12 +250,16 @@ export default function QueueScreen() {
                     styles.slotBtn,
                     isSelected && styles.slotBtnSelected,
                     isQueued && styles.slotBtnQueued,
+                    isClosed && styles.slotBtnClosed,
                   ]}
-                  onPress={() => setSelectedSlot(isSelected ? '' : slot)}
-                  activeOpacity={0.8}
+                  onPress={() => !isClosed && setSelectedSlot(isSelected ? '' : slot)}
+                  activeOpacity={isClosed ? 1 : 0.8}
                 >
-                  <Text style={[styles.slotTime, isSelected && styles.slotTimeSelected]}>{slot}</Text>
-                  {paxWaiting > 0 && (
+                  <Text style={[styles.slotTime, isSelected && styles.slotTimeSelected, isClosed && styles.slotTimeClosed]}>
+                    {slot}
+                  </Text>
+                  {isClosed && <Text style={styles.closedLabel}>Closed</Text>}
+                  {!isClosed && paxWaiting > 0 && (
                     <View style={styles.paxBadge}>
                       <Text style={styles.paxBadgeText}>{paxWaiting} waiting</Text>
                     </View>
@@ -377,8 +390,11 @@ const styles = StyleSheet.create({
   },
   slotBtnSelected: { backgroundColor: COLORS.navy, borderColor: COLORS.navy },
   slotBtnQueued: { borderColor: COLORS.success, borderWidth: 2 },
+  slotBtnClosed: { backgroundColor: '#f3f4f6', borderColor: '#e5e7eb', opacity: 0.6 },
   slotTime: { fontSize: 15, fontWeight: '800', color: COLORS.navy },
   slotTimeSelected: { color: COLORS.white },
+  slotTimeClosed: { color: COLORS.textMuted },
+  closedLabel: { fontSize: 9, fontWeight: '700', color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
   paxBadge: {
     backgroundColor: COLORS.gold, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3,
   },
