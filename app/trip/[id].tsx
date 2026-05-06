@@ -57,7 +57,7 @@ export default function TripDetailScreen() {
   const handleStatusUpdate = async () => {
     const transition = STATUS_FLOW[trip.status]
     if (!transition) return
-    const isStart = transition.next === 'in_progress'
+    const isStart = transition.next === 'active'
     Alert.alert(
       transition.label,
       isStart
@@ -247,6 +247,11 @@ export default function TripDetailScreen() {
                   {p.pickup_address && (
                     <Text style={styles.paxPickup} numberOfLines={1}>📍 {p.pickup_address}</Text>
                   )}
+                  {(p.dropoff_address || p.alighting_city) && (
+                    <Text style={styles.paxDropoff} numberOfLines={1}>
+                      🏁 {p.dropoff_address || p.alighting_city}
+                    </Text>
+                  )}
                 </View>
                 <View style={styles.codeTag}>
                   <Text style={styles.codeTagLabel}>CODE</Text>
@@ -257,8 +262,8 @@ export default function TripDetailScreen() {
           </View>
         )}
 
-        {/* Chat shortcuts — only during trip */}
-        {isActive && confirmedPax.length > 0 && (
+        {/* Chat shortcuts — during confirmed and active trips */}
+        {(isActive || trip.status === 'confirmed' || trip.status === 'scheduled') && confirmedPax.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Message Passengers</Text>
             <View style={styles.chatGrid}>
@@ -266,7 +271,7 @@ export default function TripDetailScreen() {
                 <TouchableOpacity
                   key={p.id}
                   style={styles.chatBtn}
-                  onPress={() => router.push(`/messages/${p.id}`)}
+                  onPress={() => router.push(`/messages/${p.id}?name=${encodeURIComponent(p.first_name)}`)}
                   activeOpacity={0.85}
                 >
                   <View style={styles.chatAvatar}>
@@ -314,12 +319,12 @@ export default function TripDetailScreen() {
         <View style={styles.actionBar}>
           <View style={styles.actionBarLeft}>
             <Text style={styles.actionBarLabel}>
-              {transition.next === 'in_progress'
+              {transition.next === 'active'
                 ? `${confirmedPax.length} passenger${confirmedPax.length !== 1 ? 's' : ''} confirmed`
                 : `R${Number(trip.driver_earnings || 0).toFixed(0)} earned`}
             </Text>
             <Text style={styles.actionBarSub}>
-              {transition.next === 'in_progress' ? 'Ready to depart?' : 'Mark the trip as done'}
+              {transition.next === 'active' ? 'Ready to depart?' : 'Mark the trip as done'}
             </Text>
           </View>
           <TouchableOpacity
@@ -412,6 +417,7 @@ const styles = StyleSheet.create({
   paxName: { fontSize: 15, fontWeight: '700', color: COLORS.navy },
   paxMeta: { fontSize: 12, color: COLORS.textSecondary },
   paxPickup: { fontSize: 11, color: COLORS.textMuted, marginTop: 1 },
+  paxDropoff: { fontSize: 11, color: COLORS.textSecondary, marginTop: 1 },
   codeTag: {
     backgroundColor: COLORS.gold, borderRadius: 10, padding: 10, alignItems: 'center', minWidth: 60,
   },

@@ -10,7 +10,7 @@ import { useAuth } from '../../lib/auth'
 import { COLORS } from '../../constants'
 
 export default function MessagesScreen() {
-  const { bookingId } = useLocalSearchParams<{ bookingId: string }>()
+  const { bookingId, name } = useLocalSearchParams<{ bookingId: string; name?: string }>()
   const { user } = useAuth()
   const router = useRouter()
   const [messages, setMessages] = useState<any[]>([])
@@ -50,7 +50,7 @@ export default function MessagesScreen() {
     const isMe = m.sender_id === user?.id
     return (
       <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}>
-        {!isMe && <Text style={styles.senderName}>{m.sender_first} {m.sender_last}</Text>}
+        {!isMe && <Text style={styles.senderName}>{m.first_name} {m.last_name}</Text>}
         <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>{m.content}</Text>
         <Text style={[styles.bubbleTime, isMe && styles.bubbleTimeMe]}>
           {new Date(m.created_at).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit', hour12: false })}
@@ -65,7 +65,7 @@ export default function MessagesScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.back}>
           <Text style={styles.backText}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>Passenger Chat</Text>
+        <Text style={styles.title}>{name ? `${name}` : 'Passenger Chat'}</Text>
       </View>
 
       {loading ? (
