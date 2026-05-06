@@ -71,7 +71,7 @@ export default function HomeScreen() {
   const nextTrip = todayTrips.find(t => t.status === 'scheduled' || t.status === 'confirmed')
   const doneToday = todayTrips.filter(t => t.status === 'completed').length
   const upcomingCount = todayTrips.filter(t => ['scheduled', 'confirmed'].includes(t.status)).length
-  const isApproved = profile?.status === 'approved'
+  const isApproved = profile?.is_approved === true
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -95,16 +95,9 @@ export default function HomeScreen() {
         {/* Account status banner */}
         {profile && !isApproved && (
           <View style={styles.banner}>
-            <Text style={styles.bannerTitle}>
-              {profile.status === 'pending' ? '⏳ Awaiting approval' :
-               profile.status === 'suspended' ? '⚠️ Account suspended' : '❌ Account rejected'}
-            </Text>
+            <Text style={styles.bannerTitle}>⏳ Awaiting approval</Text>
             <Text style={styles.bannerBody}>
-              {profile.status === 'pending'
-                ? 'Set up your profile and documents while you wait. You\'ll be notified when approved.'
-                : profile.status === 'suspended'
-                ? 'Check your documents in Profile → Documents or contact support.'
-                : 'Please contact support for details.'}
+              Set up your profile and documents while you wait. You'll be notified when approved.
             </Text>
           </View>
         )}
