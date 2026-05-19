@@ -83,6 +83,30 @@ export const routesApi = {
   getCities: () => api.get('/routes/cities'),
 }
 
+export const routeRequestsApi = {
+  submit: (data: {
+    origin_city: string
+    destination_city: string
+    distance_km_estimate?: number
+    suggested_price?: number
+    notes?: string
+  }) => api.post('/driver/route-requests', data),
+  getMine: () => api.get('/driver/route-requests'),
+}
+
+// Passenger-side APIs — used when the driver books a trip as a passenger
+export const passengerTripsApi = {
+  search: (params: any) => api.get('/trips/search', { params }),
+  getTrip: (id: string) => api.get(`/trips/${id}`),
+}
+
+export const passengerBookingsApi = {
+  create: (data: any) => api.post('/bookings', data),
+  getMyBookings: (params?: any) => api.get('/bookings/my', { params }),
+  getBooking: (id: string) => api.get(`/bookings/${id}`),
+  cancel: (id: string) => api.patch(`/bookings/${id}/cancel`),
+}
+
 export const messagesApi = {
   getMessages: (bookingId: string) => api.get(`/messages/${bookingId}`),
   sendMessage: (bookingId: string, content: string) =>

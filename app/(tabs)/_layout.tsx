@@ -1,14 +1,7 @@
 import { Tabs } from 'expo-router'
-import { View, Text, Platform } from 'react-native'
+import { Platform } from 'react-native'
+import { Home, ClipboardList, Car, Wallet, User, Ticket } from 'lucide-react-native'
 import { COLORS } from '../../constants'
-
-function TabIcon({ emoji, focused }: { emoji: string; focused: boolean }) {
-  return (
-    <View style={{ alignItems: 'center', justifyContent: 'center', width: 28, height: 28 }}>
-      <Text style={{ fontSize: focused ? 22 : 19 }}>{emoji}</Text>
-    </View>
-  )
-}
 
 export default function TabsLayout() {
   return (
@@ -37,42 +30,42 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="🏠" focused={focused} />,
+          tabBarIcon: ({ color, size }) => <Home color={color} size={size ?? 22} strokeWidth={2} />,
         }}
       />
       <Tabs.Screen
         name="queue"
         options={{
           title: 'Queue',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="📋" focused={focused} />,
+          tabBarIcon: ({ color, size }) => <ClipboardList color={color} size={size ?? 22} strokeWidth={2} />,
         }}
       />
       <Tabs.Screen
         name="trips"
         options={{
           title: 'Trips',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="🚗" focused={focused} />,
+          tabBarIcon: ({ color, size }) => <Car color={color} size={size ?? 22} strokeWidth={2} />,
+        }}
+      />
+      <Tabs.Screen
+        name="travel"
+        options={{
+          title: 'Travel',
+          tabBarIcon: ({ color, size }) => <Ticket color={color} size={size ?? 22} strokeWidth={2} />,
         }}
       />
       <Tabs.Screen
         name="earnings"
         options={{
           title: 'Earnings',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="💰" focused={focused} />,
-        }}
-      />
-      <Tabs.Screen
-        name="notifications"
-        options={{
-          title: 'Alerts',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="🔔" focused={focused} />,
+          tabBarIcon: ({ color, size }) => <Wallet color={color} size={size ?? 22} strokeWidth={2} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="👤" focused={focused} />,
+          tabBarIcon: ({ color, size }) => <User color={color} size={size ?? 22} strokeWidth={2} />,
         }}
       />
     </Tabs>
