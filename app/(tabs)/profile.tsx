@@ -4,6 +4,7 @@ import {
   TouchableOpacity, TextInput, Alert, ActivityIndicator,
   Platform,
 } from 'react-native'
+import { useRouter } from 'expo-router'
 import { useAuth } from '../../lib/auth'
 import { driverApi, usersApi } from '../../lib/api'
 import { COLORS } from '../../constants'
@@ -25,6 +26,7 @@ const badge = StyleSheet.create({
 
 export default function ProfileScreen() {
   const { user, logout, refresh } = useAuth()
+  const router = useRouter()
   const [tab, setTab] = useState<Tab>('profile')
   const [profile, setProfile] = useState<any>(null)
   const [vehicles, setVehicles] = useState<any[]>([])
@@ -281,6 +283,21 @@ export default function ProfileScreen() {
               }
             </TouchableOpacity>
 
+            {/* Privacy & Legal */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Privacy & Legal</Text>
+              <Text style={styles.cardHint}>Your rights under POPIA and the terms governing your use of Vya</Text>
+              <View style={styles.legalLinks}>
+                <TouchableOpacity onPress={() => router.push('/legal/privacy-policy')}>
+                  <Text style={styles.legalLink}>Privacy Policy</Text>
+                </TouchableOpacity>
+                <Text style={styles.legalDot}>·</Text>
+                <TouchableOpacity onPress={() => router.push('/legal/terms')}>
+                  <Text style={styles.legalLink}>Terms of Service</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
             <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
               <Text style={styles.logoutBtnText}>Sign Out</Text>
             </TouchableOpacity>
@@ -522,4 +539,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.offWhite, borderWidth: 1, borderColor: COLORS.border,
   },
   cancelBtnText: { fontSize: 14, fontWeight: '600', color: COLORS.textSecondary },
+  legalLinks: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 },
+  legalLink: { fontSize: 13, color: COLORS.gold, fontWeight: '600', textDecorationLine: 'underline' },
+  legalDot: { fontSize: 13, color: COLORS.textMuted },
 })

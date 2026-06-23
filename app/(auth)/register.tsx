@@ -2,16 +2,18 @@ import { useState } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   SafeAreaView, KeyboardAvoidingView, Platform, Alert,
-  ActivityIndicator, ScrollView,
+  ActivityIndicator, ScrollView, Linking,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useAuth } from '../../lib/auth'
 import { COLORS } from '../../constants'
+import { VyaIcon } from '../../components/VyaLogo'
 
 export default function RegisterScreen() {
   const { register } = useAuth()
   const router = useRouter()
   const [loading, setLoading] = useState(false)
+  const [consent, setConsent] = useState(false)
   const [form, setForm] = useState({
     first_name: '', last_name: '', email: '',
     phone: '', password: '', confirm_password: '',
@@ -32,6 +34,10 @@ export default function RegisterScreen() {
       Alert.alert('Error', 'Password must be at least 8 characters')
       return
     }
+    if (!consent) {
+      Alert.alert('Consent required', 'Please accept the Privacy Policy and Terms of Service to continue.')
+      return
+    }
     setLoading(true)
     try {
       await register({
@@ -41,6 +47,7 @@ export default function RegisterScreen() {
         phone: form.phone.trim(),
         password: form.password,
         role: 'driver',
+        consent: true,
       })
     } catch (err: any) {
       Alert.alert('Registration Failed', err.response?.data?.message || 'Something went wrong')
@@ -54,7 +61,8 @@ export default function RegisterScreen() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           <View style={styles.hero}>
-            <Text style={styles.logo}>VYA</Text>
+            <VyaIcon size={56} />
+            <Text style={styles.brandName}>vya</Text>
             <Text style={styles.logoSub}>Driver</Text>
           </View>
 
@@ -86,7 +94,21 @@ export default function RegisterScreen() {
               </View>
             ))}
 
-            <TouchableOpacity style={styles.btn} onPress={handleRegister} disabled={loading}>
+            {/* POPIA consent */}
+            <TouchableOpacity style={styles.consentRow} onPress={() => setConsent(c => !c)} activeOpacity={0.7}>
+              <View style={[styles.checkbox, consent && styles.checkboxChecked]}>
+                {consent && <Text style={styles.checkmark}>✓</Text>}
+              </View>
+              <Text style={styles.consentText}>
+                I agree to Vya&apos;s{' '}
+                <Text style={styles.consentLink} onPress={() => Linking.openURL('https://vya-gae.com/privacy-policy')}>Privacy Policy</Text>
+                {' '}and{' '}
+                <Text style={styles.consentLink} onPress={() => Linking.openURL('https://vya-gae.com/terms')}>Terms of Service</Text>
+                . I consent to my personal information being used to facilitate shuttle operations.
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={[styles.btn, !consent && { opacity: 0.5 }]} onPress={handleRegister} disabled={loading || !consent}>
               {loading
                 ? <ActivityIndicator color={COLORS.navy} />
                 : <Text style={styles.btnText}>Create Account</Text>
@@ -106,9 +128,16 @@ export default function RegisterScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.navy },
   scroll: { flexGrow: 1, justifyContent: 'center', padding: 24, gap: 24 },
-  hero: { alignItems: 'center', gap: 4 },
-  logo: { fontSize: 52, fontWeight: '900', color: COLORS.gold, letterSpacing: 6 },
-  logoSub: { fontSize: 16, fontWeight: '700', color: COLORS.white, letterSpacing: 4, textTransform: 'uppercase', marginTop: -8 },
+  hero: { alignItems: 'center', gap: 6 },
+  brandName: {
+    fontFamily: 'PlayfairDisplay_700Bold',
+    fontSize: 32,
+    fontWeight: '700',
+    color: '#ffffff',
+    letterSpacing: 6,
+    marginTop: 8,
+  },
+  logoSub: { fontSize: 12, fontWeight: '700', color: COLORS.gold, letterSpacing: 4, textTransform: 'uppercase' },
   card: { backgroundColor: COLORS.white, borderRadius: 20, padding: 24, gap: 14 },
   title: { fontSize: 22, fontWeight: '800', color: COLORS.navy },
   subtitle: { fontSize: 13, color: COLORS.textSecondary, marginTop: -6 },
@@ -126,4 +155,13 @@ const styles = StyleSheet.create({
   link: { alignItems: 'center' },
   linkText: { fontSize: 14, color: COLORS.textSecondary },
   linkBold: { color: COLORS.navy, fontWeight: '700' },
+  consentRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  checkbox: {
+    width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: COLORS.border,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1,
+  },
+  checkboxChecked: { backgroundColor: COLORS.gold, borderColor: COLORS.gold },
+  checkmark: { color: COLORS.navy, fontSize: 12, fontWeight: '800' },
+  consentText: { flex: 1, fontSize: 12, color: COLORS.textSecondary, lineHeight: 18 },
+  consentLink: { color: COLORS.gold, fontWeight: '700', textDecorationLine: 'underline' },
 })

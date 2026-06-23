@@ -6,6 +6,7 @@ import {
 import { useRouter } from 'expo-router'
 import { useAuth } from '../../lib/auth'
 import { COLORS } from '../../constants'
+import { VyaIcon } from '../../components/VyaLogo'
 
 export default function LoginScreen() {
   const { login } = useAuth()
@@ -38,9 +39,10 @@ export default function LoginScreen() {
       >
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           <View style={styles.hero}>
-            <Text style={styles.logo}>VYA</Text>
+            <VyaIcon size={68} />
+            <Text style={styles.brandName}>vya</Text>
             <Text style={styles.logoSub}>Driver</Text>
-            <Text style={styles.tagline}>Move people. Earn more.</Text>
+            <Text style={styles.tagline}>Your routes. Your schedule. Your earnings.</Text>
           </View>
 
           <View style={styles.card}>
@@ -93,10 +95,17 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.navy },
   scroll: { flexGrow: 1, justifyContent: 'center', padding: 24, gap: 24 },
-  hero: { alignItems: 'center', gap: 4 },
-  logo: { fontSize: 52, fontWeight: '900', color: COLORS.gold, letterSpacing: 6 },
-  logoSub: { fontSize: 16, fontWeight: '700', color: COLORS.white, letterSpacing: 4, textTransform: 'uppercase', marginTop: -8 },
-  tagline: { fontSize: 14, color: 'rgba(255,255,255,0.5)', marginTop: 8 },
+  hero: { alignItems: 'center', gap: 6 },
+  brandName: {
+    fontFamily: 'PlayfairDisplay_700Bold',
+    fontSize: 36,
+    fontWeight: '700',
+    color: '#ffffff',
+    letterSpacing: 6,
+    marginTop: 8,
+  },
+  logoSub: { fontSize: 12, fontWeight: '700', color: COLORS.gold, letterSpacing: 4, textTransform: 'uppercase' },
+  tagline: { fontSize: 13, color: 'rgba(255,255,255,0.45)', marginTop: 4, textAlign: 'center' },
   card: { backgroundColor: COLORS.white, borderRadius: 20, padding: 24, gap: 16 },
   title: { fontSize: 22, fontWeight: '800', color: COLORS.navy },
   subtitle: { fontSize: 14, color: COLORS.textSecondary, marginTop: -8 },

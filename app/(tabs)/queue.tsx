@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react'
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
-  TouchableOpacity, ActivityIndicator, Platform, Alert, RefreshControl,
+  TouchableOpacity, ActivityIndicator, Platform, Alert, RefreshControl, Modal,
 } from 'react-native'
+import { useRouter } from 'expo-router'
 import { queueApi, routesApi, driverApi } from '../../lib/api'
 import { COLORS, TIME_SLOTS } from '../../constants'
+
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const DAY_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 const DATES = Array.from({ length: 7 }, (_, i) => {
   const d = new Date()
@@ -25,6 +29,7 @@ function labelDate(d: Date) {
 }
 
 export default function QueueScreen() {
+  const router = useRouter()
   const [routes, setRoutes] = useState<any[]>([])
   const [vehicles, setVehicles] = useState<any[]>([])
   const [selectedRoute, setSelectedRoute] = useState<any>(null)
@@ -37,7 +42,16 @@ export default function QueueScreen() {
   const [joining, setJoining] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
 
-  useEffect(() => { loadRoutes(); loadMyQueue(); loadVehicles() }, [])
+  // Standing orders state
+  const [recurringSlots, setRecurringSlots] = useState<any[]>([])
+  const [showRecurringModal, setShowRecurringModal] = useState(false)
+  const [recurringRoute, setRecurringRoute] = useState<any>(null)
+  const [recurringVehicle, setRecurringVehicle] = useState<any>(null)
+  const [recurringDay, setRecurringDay] = useState<number>(1) // Mon default
+  const [recurringTime, setRecurringTime] = useState('')
+  const [savingRecurring, setSavingRecurring] = useState(false)
+
+  useEffect(() => { loadRoutes(); loadMyQueue(); loadVehicles(); loadRecurring() }, [])
 
   useEffect(() => {
     if (selectedRoute && selectedDate) loadOccupancy()
@@ -47,7 +61,10 @@ export default function QueueScreen() {
     try {
       const { data } = await routesApi.getAll()
       setRoutes(data.data || [])
-      if (data.data?.length > 0) setSelectedRoute(data.data[0])
+      if (data.data?.length > 0) {
+        setSelectedRoute(data.data[0])
+        setRecurringRoute(data.data[0])
+      }
     } catch {}
   }
 
@@ -56,7 +73,17 @@ export default function QueueScreen() {
       const { data } = await driverApi.getVehicles()
       const veh = data.data || []
       setVehicles(veh)
-      if (veh.length > 0) setSelectedVehicle(veh[0])
+      if (veh.length > 0) {
+        setSelectedVehicle(veh[0])
+        setRecurringVehicle(veh[0])
+      }
+    } catch {}
+  }
+
+  const loadRecurring = async () => {
+    try {
+      const { data } = await queueApi.getMyRecurring()
+      setRecurringSlots(data.data || [])
     } catch {}
   }
 
@@ -106,6 +133,47 @@ export default function QueueScreen() {
     } finally { setJoining(false) }
   }
 
+  const handleSaveRecurring = async () => {
+    if (!recurringRoute || !recurringVehicle || !recurringTime) {
+      Alert.alert('Incomplete', 'Select a route, vehicle, day and time slot.')
+      return
+    }
+    setSavingRecurring(true)
+    try {
+      await queueApi.createRecurring({
+        route_id: recurringRoute.id,
+        vehicle_id: recurringVehicle.id,
+        day_of_week: recurringDay,
+        slot_time: recurringTime,
+        weeks_ahead: 4,
+      })
+      await loadRecurring()
+      setShowRecurringModal(false)
+      setRecurringTime('')
+      Alert.alert('Standing order set!', `Every ${DAY_FULL[recurringDay]} at ${recurringTime} on ${recurringRoute.origin_city} → ${recurringRoute.destination_city} has been reserved for the next 4 weeks.`)
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.message || 'Could not create standing reservation')
+    } finally {
+      setSavingRecurring(false)
+    }
+  }
+
+  const handleDeleteRecurring = (id: string, label: string) => {
+    Alert.alert('Cancel Standing Order', `Stop auto-queuing for ${label}?`, [
+      { text: 'Keep', style: 'cancel' },
+      {
+        text: 'Cancel Order', style: 'destructive', onPress: async () => {
+          try {
+            await queueApi.deleteRecurring(id)
+            await loadRecurring()
+          } catch (err: any) {
+            Alert.alert('Error', err.response?.data?.message || 'Failed to cancel')
+          }
+        }
+      }
+    ])
+  }
+
   const handleLeave = async (tripId: string) => {
     Alert.alert('Cancel Trip', 'Remove yourself from this slot?', [
       { text: 'Keep', style: 'cancel' },
@@ -145,8 +213,17 @@ export default function QueueScreen() {
     <SafeAreaView style={styles.safe}>
       {/* Navy header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Join Queue</Text>
-        <Text style={styles.headerSub}>Select a slot to get assigned passengers</Text>
+        <View>
+          <Text style={styles.headerTitle}>Join Queue</Text>
+          <Text style={styles.headerSub}>Select a slot to get assigned passengers</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.requestRouteBtn}
+          onPress={() => router.push('/route-request')}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.requestRouteBtnText}>+ Request Route</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -275,6 +352,41 @@ export default function QueueScreen() {
           </View>
         </View>
 
+        {/* Standing Orders section */}
+        <View style={styles.section}>
+          <View style={styles.sectionLabelRow}>
+            <Text style={styles.sectionLabel}>Standing Orders</Text>
+            <TouchableOpacity style={styles.addRecurringBtn} onPress={() => setShowRecurringModal(true)}>
+              <Text style={styles.addRecurringBtnText}>+ Add</Text>
+            </TouchableOpacity>
+          </View>
+          {recurringSlots.length === 0 ? (
+            <View style={styles.recurringEmpty}>
+              <Text style={styles.recurringEmptyText}>No standing orders yet. Add one to auto-queue every week.</Text>
+            </View>
+          ) : (
+            recurringSlots.map((rs: any) => (
+              <View key={rs.id} style={styles.recurringCard}>
+                <View style={styles.recurringLeft}>
+                  <Text style={styles.recurringDay}>{DAY_FULL[rs.day_of_week]}</Text>
+                  <Text style={styles.recurringTime}>{rs.slot_time}</Text>
+                </View>
+                <View style={styles.recurringDivider} />
+                <View style={styles.recurringInfo}>
+                  <Text style={styles.recurringRoute}>{rs.origin_city} → {rs.destination_city}</Text>
+                  <Text style={styles.recurringMeta}>{rs.make} {rs.model} · {rs.weeks_ahead}wk rolling</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.recurringDeleteBtn}
+                  onPress={() => handleDeleteRecurring(rs.id, `${DAY_FULL[rs.day_of_week]} ${rs.slot_time}`)}
+                >
+                  <Text style={styles.recurringDeleteText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            ))
+          )}
+        </View>
+
         {/* My upcoming queued trips */}
         {myQueue.length > 0 && (
           <View style={styles.section}>
@@ -334,6 +446,103 @@ export default function QueueScreen() {
           <Text style={styles.alreadyQueuedText}>✓ You're already queued for this slot</Text>
         </View>
       )}
+
+      {/* Standing order creation modal */}
+      <Modal visible={showRecurringModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowRecurringModal(false)}>
+        <SafeAreaView style={styles.modalSafe}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>New Standing Order</Text>
+            <TouchableOpacity onPress={() => setShowRecurringModal(false)}>
+              <Text style={styles.modalClose}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={styles.modalScroll} showsVerticalScrollIndicator={false}>
+            <Text style={styles.modalHint}>
+              A standing order auto-queues you on this route every week — no manual re-queuing needed.
+            </Text>
+
+            {/* Route */}
+            <Text style={styles.modalLabel}>Route</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={styles.pillRow}>
+                {routes.map(r => (
+                  <TouchableOpacity
+                    key={r.id}
+                    style={[styles.pill, recurringRoute?.id === r.id && styles.pillActive]}
+                    onPress={() => setRecurringRoute(r)}
+                  >
+                    <Text style={[styles.pillText, recurringRoute?.id === r.id && styles.pillTextActive]}>
+                      {r.origin_city} → {r.destination_city}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
+            {/* Vehicle (if multiple) */}
+            {vehicles.length > 1 && (
+              <>
+                <Text style={[styles.modalLabel, { marginTop: 16 }]}>Vehicle</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <View style={styles.pillRow}>
+                    {vehicles.map(v => (
+                      <TouchableOpacity
+                        key={v.id}
+                        style={[styles.pill, recurringVehicle?.id === v.id && styles.pillActive]}
+                        onPress={() => setRecurringVehicle(v)}
+                      >
+                        <Text style={[styles.pillText, recurringVehicle?.id === v.id && styles.pillTextActive]}>
+                          {v.make} {v.model} · {v.registration_number}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </ScrollView>
+              </>
+            )}
+
+            {/* Day of week */}
+            <Text style={[styles.modalLabel, { marginTop: 16 }]}>Day of week</Text>
+            <View style={styles.dayRow}>
+              {DAYS.map((d, i) => (
+                <TouchableOpacity
+                  key={d}
+                  style={[styles.dayBtn, recurringDay === i && styles.dayBtnActive]}
+                  onPress={() => setRecurringDay(i)}
+                >
+                  <Text style={[styles.dayBtnText, recurringDay === i && styles.dayBtnTextActive]}>{d}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Time slot */}
+            <Text style={[styles.modalLabel, { marginTop: 16 }]}>Time slot</Text>
+            <View style={styles.slotGrid}>
+              {TIME_SLOTS.map(slot => (
+                <TouchableOpacity
+                  key={slot}
+                  style={[styles.slotBtn, recurringTime === slot && styles.slotBtnSelected]}
+                  onPress={() => setRecurringTime(slot === recurringTime ? '' : slot)}
+                >
+                  <Text style={[styles.slotTime, recurringTime === slot && styles.slotTimeSelected]}>{slot}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity
+              style={[styles.saveRecurringBtn, (!recurringRoute || !recurringTime || savingRecurring) && { opacity: 0.5 }]}
+              onPress={handleSaveRecurring}
+              disabled={!recurringRoute || !recurringTime || savingRecurring}
+              activeOpacity={0.85}
+            >
+              {savingRecurring
+                ? <ActivityIndicator color={COLORS.navy} />
+                : <Text style={styles.saveRecurringBtnText}>Save Standing Order</Text>
+              }
+            </TouchableOpacity>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   )
 }
@@ -345,9 +554,15 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.navy,
     paddingHorizontal: 20, paddingBottom: 20,
     paddingTop: Platform.OS === 'android' ? 48 : 20,
+    flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between',
   },
   headerTitle: { fontSize: 24, fontWeight: '900', color: COLORS.white },
   headerSub: { fontSize: 13, color: 'rgba(255,255,255,0.55)', marginTop: 2 },
+  requestRouteBtn: {
+    backgroundColor: COLORS.gold, borderRadius: 20,
+    paddingHorizontal: 14, paddingVertical: 8,
+  },
+  requestRouteBtnText: { fontSize: 12, fontWeight: '800', color: COLORS.navy },
 
   scroll: { padding: 16, gap: 20, paddingBottom: 40 },
 
@@ -451,4 +666,65 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   alreadyQueuedText: { fontSize: 14, fontWeight: '700', color: COLORS.success },
+
+  // Standing Orders
+  addRecurringBtn: {
+    backgroundColor: COLORS.navy, borderRadius: 12,
+    paddingHorizontal: 12, paddingVertical: 5,
+  },
+  addRecurringBtnText: { fontSize: 11, fontWeight: '800', color: COLORS.white },
+  recurringEmpty: {
+    backgroundColor: COLORS.white, borderRadius: 14, padding: 16,
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  recurringEmptyText: { fontSize: 13, color: COLORS.textSecondary, textAlign: 'center' },
+  recurringCard: {
+    backgroundColor: COLORS.white, borderRadius: 14, padding: 14,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  recurringLeft: { alignItems: 'center', width: 58 },
+  recurringDay: { fontSize: 12, fontWeight: '800', color: COLORS.navy, textAlign: 'center' },
+  recurringTime: { fontSize: 16, fontWeight: '900', color: COLORS.gold, marginTop: 2 },
+  recurringDivider: { width: 1, height: 36, backgroundColor: COLORS.border },
+  recurringInfo: { flex: 1 },
+  recurringRoute: { fontSize: 14, fontWeight: '700', color: COLORS.navy },
+  recurringMeta: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
+  recurringDeleteBtn: {
+    width: 32, height: 32, borderRadius: 8,
+    backgroundColor: COLORS.dangerLight, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: '#fca5a5',
+  },
+  recurringDeleteText: { fontSize: 12, fontWeight: '800', color: COLORS.danger },
+
+  // Modal
+  modalSafe: { flex: 1, backgroundColor: COLORS.offWhite },
+  modalHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: 20, paddingVertical: 18,
+    borderBottomWidth: 1, borderBottomColor: COLORS.border,
+    backgroundColor: COLORS.white,
+  },
+  modalTitle: { fontSize: 18, fontWeight: '900', color: COLORS.navy },
+  modalClose: { fontSize: 18, color: COLORS.textMuted, fontWeight: '600', paddingHorizontal: 4 },
+  modalScroll: { padding: 20, gap: 4, paddingBottom: 40 },
+  modalHint: {
+    fontSize: 13, color: COLORS.textSecondary, lineHeight: 19,
+    backgroundColor: COLORS.white, borderRadius: 12, padding: 14,
+    borderWidth: 1, borderColor: COLORS.border, marginBottom: 12,
+  },
+  modalLabel: { fontSize: 12, fontWeight: '700', color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
+  dayRow: { flexDirection: 'row', gap: 6 },
+  dayBtn: {
+    flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center',
+    backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.border,
+  },
+  dayBtnActive: { backgroundColor: COLORS.navy, borderColor: COLORS.navy },
+  dayBtnText: { fontSize: 12, fontWeight: '700', color: COLORS.text },
+  dayBtnTextActive: { color: COLORS.white },
+  saveRecurringBtn: {
+    backgroundColor: COLORS.gold, borderRadius: 16, paddingVertical: 16,
+    alignItems: 'center', marginTop: 24,
+  },
+  saveRecurringBtnText: { fontSize: 15, fontWeight: '900', color: COLORS.navy },
 })

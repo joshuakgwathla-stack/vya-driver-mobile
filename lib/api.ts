@@ -68,6 +68,11 @@ export const queueApi = {
   // Slot occupancy for a route + date
   getSlotOccupancy: (params: { route_id: string; date: string }) =>
     api.get('/trips/slots', { params }),
+  // Standing weekly reservations
+  createRecurring: (data: { route_id: string; vehicle_id: string; day_of_week: number; slot_time: string; weeks_ahead?: number }) =>
+    api.post('/trips/queue/recurring', data),
+  getMyRecurring: () => api.get('/trips/queue/recurring'),
+  deleteRecurring: (id: string) => api.delete(`/trips/queue/recurring/${id}`),
 }
 
 export const tripsApi = {

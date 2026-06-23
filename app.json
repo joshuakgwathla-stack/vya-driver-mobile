@@ -11,7 +11,7 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0a0f1e"
+      "backgroundColor": "#0f1f4a"
     },
     "ios": {
       "supportsTablet": false,
@@ -20,7 +20,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0a0f1e"
+        "backgroundColor": "#0f1f4a"
       },
       "package": "com.vya.driver",
       "edgeToEdgeEnabled": true,
@@ -40,6 +40,13 @@
         {
           "icon": "./assets/icon.png",
           "color": "#0a0f1e"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Vya needs your location to share live position with passengers during active trips.",
+          "locationWhenInUsePermission": "Vya needs your location to share live position with passengers during active trips."
         }
       ]
     ],

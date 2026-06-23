@@ -2,12 +2,15 @@ import { useEffect, useState, useRef } from 'react'
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
   TouchableOpacity, Alert, ActivityIndicator, Platform,
-  TextInput,
+  TextInput, Linking,
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
+import * as Location from 'expo-location'
+import * as SecureStore from 'expo-secure-store'
+import { io, Socket } from 'socket.io-client'
 import { tripsApi } from '../../lib/api'
 import api from '../../lib/api'
-import { COLORS } from '../../constants'
+import { COLORS, API_URL } from '../../constants'
 
 const STATUS_FLOW: Record<string, { next: string; label: string }> = {
   scheduled: { next: 'active', label: 'Start Trip' },
@@ -29,6 +32,27 @@ function statusLabel(s: string) {
   return s
 }
 
+// ── Navigation helpers ─────────────────────────────────────────────────────
+
+function buildMapsUrl(addresses: string[]): string {
+  const clean = addresses.filter(Boolean)
+  if (clean.length === 0) return ''
+  if (clean.length === 1) {
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(clean[0])}&travelmode=driving`
+  }
+  const destination = encodeURIComponent(clean[clean.length - 1])
+  const waypoints = clean.slice(0, -1).map(encodeURIComponent).join('|')
+  return `https://www.google.com/maps/dir/?api=1&destination=${destination}&waypoints=${waypoints}&travelmode=driving`
+}
+
+function openNavigation(addresses: string[]) {
+  const url = buildMapsUrl(addresses)
+  if (!url) { Alert.alert('No address', 'No address available to navigate to.'); return }
+  Linking.openURL(url).catch(() =>
+    Alert.alert('Could not open Maps', 'Make sure Google Maps is installed.')
+  )
+}
+
 export default function TripDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
@@ -39,8 +63,78 @@ export default function TripDetailScreen() {
   const [pickupCode, setPickupCode] = useState('')
   const [validating, setValidating] = useState(false)
   const codeInputRef = useRef<TextInput>(null)
+  const socketRef = useRef<Socket | null>(null)
+  const locationSubRef = useRef<Location.LocationSubscription | null>(null)
+  const [broadcastingLocation, setBroadcastingLocation] = useState(false)
 
   useEffect(() => { loadAll() }, [id])
+
+  // ── Live location broadcasting ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!trip || trip.status !== 'active' || !id) return
+
+    let socket: Socket
+
+    const startBroadcast = async () => {
+      // Request location permission
+      const { status } = await Location.requestForegroundPermissionsAsync()
+      if (status !== 'granted') {
+        Alert.alert(
+          'Location permission required',
+          'Vya needs your location to share your position with passengers during active trips.',
+        )
+        return
+      }
+
+      // Connect socket
+      const token = await SecureStore.getItemAsync('accessToken')
+      if (!token) return
+
+      socket = io(API_URL, {
+        auth: { token },
+        transports: ['websocket'],
+        reconnection: true,
+        reconnectionAttempts: 20,
+        reconnectionDelay: 3000,
+      })
+      socketRef.current = socket
+
+      socket.on('connect', () => {
+        socket.emit('driver:join_trip', id)
+        setBroadcastingLocation(true)
+      })
+
+      socket.on('disconnect', () => setBroadcastingLocation(false))
+
+      // Watch GPS and emit on each update
+      locationSubRef.current = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.BestForNavigation,
+          timeInterval: 3000,   // at most every 3 s
+          distanceInterval: 10, // or every 10 m
+        },
+        (loc) => {
+          if (!socket.connected) return
+          socket.emit('driver:location_update', {
+            latitude: loc.coords.latitude,
+            longitude: loc.coords.longitude,
+            heading: loc.coords.heading ?? undefined,
+            speed: loc.coords.speed ?? undefined,
+          })
+        }
+      )
+    }
+
+    startBroadcast()
+
+    return () => {
+      locationSubRef.current?.remove()
+      locationSubRef.current = null
+      socket?.disconnect()
+      socketRef.current = null
+      setBroadcastingLocation(false)
+    }
+  }, [trip?.status, id])
 
   const loadAll = async () => {
     try {
@@ -147,6 +241,15 @@ export default function TripDetailScreen() {
             <View style={styles.liveRow}>
               <View style={styles.liveBlip} />
               <Text style={styles.liveText}>TRIP IN PROGRESS</Text>
+              {broadcastingLocation ? (
+                <View style={styles.locBadge}>
+                  <Text style={styles.locBadgeText}>📍 Sharing location</Text>
+                </View>
+              ) : (
+                <View style={[styles.locBadge, styles.locBadgePending]}>
+                  <Text style={[styles.locBadgeText, { color: COLORS.warning }]}>📍 Acquiring GPS...</Text>
+                </View>
+              )}
             </View>
           )}
 
@@ -230,6 +333,51 @@ export default function TripDetailScreen() {
           </View>
         )}
 
+        {/* ── Navigation — active trips only ───────────────────────────── */}
+        {isActive && confirmedPax.length > 0 && (() => {
+          const pickupAddresses = confirmedPax.map(p => p.pickup_address).filter(Boolean)
+          const dropoffAddresses = confirmedPax
+            .map(p => p.dropoff_address || p.alighting_city)
+            .filter(Boolean)
+          return (
+            <View style={styles.navCard}>
+              <Text style={styles.navCardTitle}>🗺 Navigate</Text>
+              <Text style={styles.navCardSub}>
+                Open Google Maps with all stops pre-loaded — it handles the route for you
+              </Text>
+              <View style={styles.navBtnRow}>
+                <TouchableOpacity
+                  style={styles.navBtnPickup}
+                  onPress={() => openNavigation(pickupAddresses)}
+                  activeOpacity={0.85}
+                  disabled={pickupAddresses.length === 0}
+                >
+                  <Text style={styles.navBtnIcon}>📍</Text>
+                  <View>
+                    <Text style={styles.navBtnLabel}>All Pickups</Text>
+                    <Text style={styles.navBtnCount}>{pickupAddresses.length} stop{pickupAddresses.length !== 1 ? 's' : ''}</Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.navBtnDropoff, dropoffAddresses.length === 0 && { opacity: 0.4 }]}
+                  onPress={() => openNavigation(dropoffAddresses)}
+                  activeOpacity={0.85}
+                  disabled={dropoffAddresses.length === 0}
+                >
+                  <Text style={styles.navBtnIcon}>🏁</Text>
+                  <View>
+                    <Text style={[styles.navBtnLabel, { color: COLORS.white }]}>All Dropoffs</Text>
+                    <Text style={[styles.navBtnCount, { color: 'rgba(255,255,255,0.6)' }]}>
+                      {dropoffAddresses.length} stop{dropoffAddresses.length !== 1 ? 's' : ''}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )
+        })()}
+
         {/* Confirmed passengers */}
         {confirmedPax.length > 0 && (
           <View style={styles.section}>
@@ -253,9 +401,33 @@ export default function TripDetailScreen() {
                     </Text>
                   )}
                 </View>
-                <View style={styles.codeTag}>
-                  <Text style={styles.codeTagLabel}>CODE</Text>
-                  <Text style={styles.codeTagVal}>{p.pickup_code || '—'}</Text>
+                <View style={styles.paxRight}>
+                  <View style={styles.codeTag}>
+                    <Text style={styles.codeTagLabel}>CODE</Text>
+                    <Text style={styles.codeTagVal}>{p.pickup_code || '—'}</Text>
+                  </View>
+                  {isActive && (
+                    <View style={styles.paxNavBtns}>
+                      {p.pickup_address && (
+                        <TouchableOpacity
+                          style={styles.paxNavBtn}
+                          onPress={() => openNavigation([p.pickup_address])}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={styles.paxNavBtnText}>📍 Pickup</Text>
+                        </TouchableOpacity>
+                      )}
+                      {(p.dropoff_address || p.alighting_city) && (
+                        <TouchableOpacity
+                          style={[styles.paxNavBtn, styles.paxNavBtnDrop]}
+                          onPress={() => openNavigation([p.dropoff_address || p.alighting_city])}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.paxNavBtnText, { color: COLORS.navy }]}>🏁 Dropoff</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  )}
                 </View>
               </View>
             ))}
@@ -404,7 +576,7 @@ const styles = StyleSheet.create({
 
   paxCard: {
     backgroundColor: COLORS.white, borderRadius: 14, padding: 14,
-    flexDirection: 'row', alignItems: 'center', gap: 12,
+    flexDirection: 'row', alignItems: 'flex-start', gap: 12,
     borderWidth: 1, borderColor: COLORS.border,
   },
   paxCardPending: { opacity: 0.65 },
@@ -483,4 +655,48 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', minWidth: 150,
   },
   actionBtnText: { fontSize: 15, fontWeight: '800', color: 'white' },
+
+  // Navigation card
+  navCard: {
+    backgroundColor: COLORS.white, borderRadius: 16, padding: 16, gap: 12,
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  navCardTitle: { fontSize: 15, fontWeight: '800', color: COLORS.navy },
+  navCardSub: { fontSize: 12, color: COLORS.textSecondary, lineHeight: 17, marginTop: -4 },
+  navBtnRow: { flexDirection: 'row', gap: 10 },
+  navBtnPickup: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: COLORS.successLight, borderRadius: 12, padding: 14,
+    borderWidth: 1, borderColor: COLORS.success + '44',
+  },
+  navBtnDropoff: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: COLORS.navy, borderRadius: 12, padding: 14,
+  },
+  navBtnIcon: { fontSize: 22 },
+  navBtnLabel: { fontSize: 13, fontWeight: '800', color: COLORS.success },
+  navBtnCount: { fontSize: 11, color: COLORS.success + 'aa', marginTop: 1 },
+
+  // Per-passenger navigate buttons
+  paxRight: { alignItems: 'flex-end', gap: 8 },
+  paxNavBtns: { gap: 5 },
+  paxNavBtn: {
+    backgroundColor: COLORS.successLight, borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderWidth: 1, borderColor: COLORS.success + '44',
+  },
+  paxNavBtnDrop: {
+    backgroundColor: COLORS.gold + '22',
+    borderColor: COLORS.gold + '55',
+  },
+  paxNavBtnText: { fontSize: 11, fontWeight: '700', color: COLORS.success },
+
+  // Location badge
+  locBadge: {
+    marginLeft: 'auto' as any,
+    backgroundColor: 'rgba(16,185,129,0.18)',
+    borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3,
+  },
+  locBadgePending: { backgroundColor: 'rgba(245,158,11,0.15)' },
+  locBadgeText: { fontSize: 10, fontWeight: '700', color: COLORS.success, letterSpacing: 0.3 },
 })
