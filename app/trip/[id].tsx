@@ -76,7 +76,7 @@ export default function TripDetailScreen() {
     let socket: Socket
 
     const startBroadcast = async () => {
-      // Request location permission
+      // Request foreground then background location permission
       const { status } = await Location.requestForegroundPermissionsAsync()
       if (status !== 'granted') {
         Alert.alert(
@@ -84,6 +84,15 @@ export default function TripDetailScreen() {
           'Vya needs your location to share your position with passengers during active trips.',
         )
         return
+      }
+      // Request background so location continues when driver switches apps (e.g. to navigation)
+      const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync()
+      if (bgStatus !== 'granted') {
+        Alert.alert(
+          'Keep app open during trip',
+          'Background location was not granted. Please keep Vya open while driving so passengers can track you.',
+          [{ text: 'OK' }]
+        )
       }
 
       // Connect socket
