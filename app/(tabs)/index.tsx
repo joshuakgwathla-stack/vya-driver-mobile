@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
-  TouchableOpacity, ActivityIndicator, Platform, RefreshControl,
+  TouchableOpacity, ActivityIndicator, Platform, RefreshControl, Share,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useAuth } from '../../lib/auth'
@@ -225,6 +225,26 @@ export default function HomeScreen() {
         {/* Quick actions */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Quick Actions</Text>
+
+          {/* Invite Passengers — full-width featured action */}
+          {profile?.slug && (
+            <TouchableOpacity
+              style={styles.inviteBtn}
+              activeOpacity={0.85}
+              onPress={() => Share.share({
+                message: `Hey! Book a trip with me on Vya — see my upcoming trips and reserve your seat here:\nhttps://app.vya-gae.com/driver/${profile.slug}`,
+                url: `https://app.vya-gae.com/driver/${profile.slug}`,
+              })}
+            >
+              <Text style={styles.inviteIcon}>👥</Text>
+              <View style={styles.inviteText}>
+                <Text style={styles.inviteTitle}>Invite Passengers</Text>
+                <Text style={styles.inviteSub}>Share your trips on WhatsApp or anywhere</Text>
+              </View>
+              <Text style={styles.inviteArrow}>↗</Text>
+            </TouchableOpacity>
+          )}
+
           <View style={styles.actionsGrid}>
             {[
               { icon: '📋', label: 'Join Queue', route: '/(tabs)/queue' },
@@ -345,6 +365,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12,
   },
   queueCtaText: { fontSize: 14, fontWeight: '700', color: COLORS.white },
+
+  inviteBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    backgroundColor: COLORS.navy, borderRadius: 14, padding: 18,
+    borderWidth: 1.5, borderColor: COLORS.gold + '55',
+  },
+  inviteIcon: { fontSize: 26 },
+  inviteText: { flex: 1, gap: 2 },
+  inviteTitle: { fontSize: 15, fontWeight: '800', color: COLORS.gold },
+  inviteSub: { fontSize: 12, color: 'rgba(255,255,255,0.5)' },
+  inviteArrow: { fontSize: 18, color: COLORS.gold, fontWeight: '700' },
 
   actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   actionBtn: {
