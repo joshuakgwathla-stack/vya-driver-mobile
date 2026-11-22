@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity,
   TextInput, Alert, ActivityIndicator, Image,
 } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useRouter } from 'expo-router'
 import { useAuth } from '../lib/auth'
 import { driverApi } from '../lib/api'
@@ -12,17 +14,37 @@ import { COLORS } from '../constants'
 // Replaces a long manual form with two document photos + a short confirm step —
 // see the onboarding redesign (panel review, 2026-11-22). PDP is deliberately NOT
 // part of this flow — not required for informal drivers at launch. Bank details are
-// a third, skippable step (added 2026-11-22): not required to reach the queue, but
-// asked for right away so "get paid quickly" is something we can actually promise —
-// a driver who skips it can still add it later from the Profile tab.
+// a third, skippable step: not required to reach the queue, but asked for right away
+// so "get paid quickly" is something we can actually promise.
+//
+// 2026-11-22 — hardened for our actual users, not a generic smartphone owner:
+// minibus taxi drivers in SA have historically had zero app support specifically
+// because of data cost, not literacy (confirmed via research into the sector).
+// So: compress photos before upload, save progress locally so a dropped connection
+// or interruption never costs a driver a redo, and let a failed upload retry with
+// the same photo instead of forcing a reshoot. None of this adds a single extra
+// tap to the normal path — it only shows up if something actually goes wrong.
 type Step = 'license' | 'vehicle' | 'bank'
 
+const DRAFT_KEY = 'onboarding_draft_v1'
 const isValidDateString = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && !isNaN(new Date(value).getTime())
 
+// Document photos only need to be legible, not full camera resolution — this is
+// the single biggest lever on data cost, which research names as the actual
+// barrier for this user base (more so than literacy or device quality).
+const compressForUpload = async (uri: string) => {
+  const result = await manipulateAsync(uri, [{ resize: { width: 1400 } }], { compress: 0.5, format: SaveFormat.JPEG })
+  return result.uri
+}
+
 export default function OnboardingScreen() {
-  const { refresh } = useAuth()
+  const { refresh, user } = useAuth()
+  // Scoped per-account — AsyncStorage is device-wide, and a shared/test device with
+  // multiple drivers logging in and out must never show one person's draft to another.
+  const draftKey = user?.id ? `${DRAFT_KEY}_${user.id}` : null
   const router = useRouter()
   const [step, setStep] = useState<Step>('license')
+  const [restored, setRestored] = useState(false)
 
   // License step state
   const [licenseUri, setLicenseUri] = useState('')
@@ -51,7 +73,68 @@ export default function OnboardingScreen() {
 
   const [saving, setSaving] = useState(false)
 
-  const pickAndExtract = async (
+  // Restore any in-progress draft on mount — a dropped connection or an interrupted
+  // app shouldn't cost a driver a full redo (and the data it took to get there).
+  useEffect(() => {
+    if (!draftKey) return
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(draftKey)
+        if (raw) {
+          const d = JSON.parse(raw)
+          setStep(d.step || 'license')
+          setLicenseUri(d.licenseUri || ''); setLicenseDocUrl(d.licenseDocUrl || '')
+          setLicenseNumber(d.licenseNumber || ''); setIdNumber(d.idNumber || ''); setLicenseExpiry(d.licenseExpiry || '')
+          setNatisUri(d.natisUri || ''); setNatisDocUrl(d.natisDocUrl || '')
+          setRegNumber(d.regNumber || ''); setMake(d.make || ''); setModel(d.model || '')
+          setYear(d.year || ''); setColor(d.color || ''); setVin(d.vin || ''); setCapacity(d.capacity || '')
+        }
+      } catch {}
+      setRestored(true)
+    })()
+  }, [draftKey])
+
+  // Autosave the draft as the driver progresses — deliberately not on bank fields,
+  // those aren't worth re-prompting for if lost and clear on finish regardless.
+  useEffect(() => {
+    if (!restored || !draftKey) return // don't overwrite a saved draft with blank initial state
+    AsyncStorage.setItem(draftKey, JSON.stringify({
+      step, licenseUri, licenseDocUrl, licenseNumber, idNumber, licenseExpiry,
+      natisUri, natisDocUrl, regNumber, make, model, year, color, vin, capacity,
+    })).catch(() => {})
+  }, [restored, draftKey, step, licenseUri, licenseDocUrl, licenseNumber, idNumber, licenseExpiry,
+      natisUri, natisDocUrl, regNumber, make, model, year, color, vin, capacity])
+
+  const clearDraft = () => { if (draftKey) AsyncStorage.removeItem(draftKey).catch(() => {}) }
+
+  // Runs the extraction call against whatever photo is currently set for this
+  // document — used both right after capture and by "Retry" on a failed attempt,
+  // so a transient network error never forces a reshoot.
+  const runExtraction = async (
+    documentType: 'license' | 'natis',
+    uri: string,
+    setExtracting: (b: boolean) => void,
+    onFields: (fields: any, documentUrl: string) => void,
+  ) => {
+    setExtracting(true)
+    try {
+      const { data } = await driverApi.extractDocument(documentType, uri, 'image/jpeg')
+      onFields(data.data.fields, data.data.document_url)
+    } catch (err: any) {
+      Alert.alert(
+        "Couldn't process that",
+        err.response?.data?.message || 'Check your connection and try again.',
+        [
+          { text: 'Retake Photo', style: 'cancel' },
+          { text: 'Retry', onPress: () => runExtraction(documentType, uri, setExtracting, onFields) },
+        ],
+      )
+    } finally {
+      setExtracting(false)
+    }
+  }
+
+  const captureAndExtract = async (
     documentType: 'license' | 'natis',
     fromCamera: boolean,
     setUri: (u: string) => void,
@@ -67,26 +150,17 @@ export default function OnboardingScreen() {
     }
 
     const result = fromCamera
-      ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.7 })
-      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.7 })
+      ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 })
+      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 })
     if (result.canceled || !result.assets?.[0]) return
 
-    const asset = result.assets[0]
-    setUri(asset.uri)
-    setExtracting(true)
-    try {
-      const mimeType = asset.mimeType || 'image/jpeg'
-      const { data } = await driverApi.extractDocument(documentType, asset.uri, mimeType)
-      onFields(data.data.fields, data.data.document_url)
-    } catch (err: any) {
-      Alert.alert('Error', err.response?.data?.message || "Couldn't read that document — enter the details manually below.")
-    } finally {
-      setExtracting(false)
-    }
+    const compressedUri = await compressForUpload(result.assets[0].uri)
+    setUri(compressedUri)
+    await runExtraction(documentType, compressedUri, setExtracting, onFields)
   }
 
   const pickLicense = (fromCamera: boolean) =>
-    pickAndExtract('license', fromCamera, setLicenseUri, setExtractingLicense, (fields, url) => {
+    captureAndExtract('license', fromCamera, setLicenseUri, setExtractingLicense, (fields, url) => {
       setLicenseDocUrl(url)
       if (fields?.license_number) setLicenseNumber(fields.license_number)
       if (fields?.id_number) setIdNumber(fields.id_number)
@@ -97,7 +171,7 @@ export default function OnboardingScreen() {
     })
 
   const pickNatis = (fromCamera: boolean) =>
-    pickAndExtract('natis', fromCamera, setNatisUri, setExtractingNatis, (fields, url) => {
+    captureAndExtract('natis', fromCamera, setNatisUri, setExtractingNatis, (fields, url) => {
       setNatisDocUrl(url)
       if (fields?.registration_number) setRegNumber(fields.registration_number)
       if (fields?.make) setMake(fields.make)
@@ -164,6 +238,7 @@ export default function OnboardingScreen() {
   }
 
   const goToTabs = async () => {
+    clearDraft()
     await refresh()
     router.replace('/(tabs)')
   }
@@ -190,6 +265,14 @@ export default function OnboardingScreen() {
 
   const skipBank = () => { goToTabs() }
 
+  if (!restored) {
+    return (
+      <SafeAreaView style={[styles.safe, styles.center]}>
+        <ActivityIndicator color={COLORS.gold} size="large" />
+      </SafeAreaView>
+    )
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.scroll}>
@@ -206,14 +289,12 @@ export default function OnboardingScreen() {
         {step === 'license' ? (
           <>
             {licenseUri ? <Image source={{ uri: licenseUri }} style={styles.preview} /> : null}
-            <View style={styles.photoButtons}>
-              <TouchableOpacity style={styles.photoBtn} onPress={() => pickLicense(true)} disabled={extractingLicense}>
-                <Text style={styles.photoBtnText}>📷 Take Photo</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.photoBtnOutline} onPress={() => pickLicense(false)} disabled={extractingLicense}>
-                <Text style={styles.photoBtnOutlineText}>Choose from Library</Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity style={styles.photoBtn} onPress={() => pickLicense(true)} disabled={extractingLicense}>
+              <Text style={styles.photoBtnText}>📷 {licenseUri ? 'Retake Photo' : 'Take Photo'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.libraryLink} onPress={() => pickLicense(false)} disabled={extractingLicense}>
+              <Text style={styles.libraryLinkText}>or choose from your photos</Text>
+            </TouchableOpacity>
             {extractingLicense && (
               <View style={styles.extractingRow}>
                 <ActivityIndicator color={COLORS.gold} />
@@ -234,14 +315,12 @@ export default function OnboardingScreen() {
         ) : step === 'vehicle' ? (
           <>
             {natisUri ? <Image source={{ uri: natisUri }} style={styles.preview} /> : null}
-            <View style={styles.photoButtons}>
-              <TouchableOpacity style={styles.photoBtn} onPress={() => pickNatis(true)} disabled={extractingNatis}>
-                <Text style={styles.photoBtnText}>📷 Take Photo</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.photoBtnOutline} onPress={() => pickNatis(false)} disabled={extractingNatis}>
-                <Text style={styles.photoBtnOutlineText}>Choose from Library</Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity style={styles.photoBtn} onPress={() => pickNatis(true)} disabled={extractingNatis}>
+              <Text style={styles.photoBtnText}>📷 {natisUri ? 'Retake Photo' : 'Take Photo'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.libraryLink} onPress={() => pickNatis(false)} disabled={extractingNatis}>
+              <Text style={styles.libraryLinkText}>or choose from your photos</Text>
+            </TouchableOpacity>
             {extractingNatis && (
               <View style={styles.extractingRow}>
                 <ActivityIndicator color={COLORS.gold} />
@@ -297,16 +376,16 @@ function Field({ label, ...props }: any) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.surface },
+  center: { justifyContent: 'center', alignItems: 'center' },
   scroll: { padding: 20, paddingBottom: 60 },
   stepIndicator: { fontSize: 13, fontWeight: '700', color: COLORS.gold, marginBottom: 4 },
   title: { fontSize: 24, fontWeight: '800', color: COLORS.text, marginBottom: 6 },
   subtitle: { fontSize: 14, color: COLORS.textSecondary, marginBottom: 20 },
   preview: { width: '100%', height: 180, borderRadius: 12, marginBottom: 12, backgroundColor: COLORS.border },
-  photoButtons: { flexDirection: 'row', gap: 10, marginBottom: 8 },
-  photoBtn: { flex: 1, backgroundColor: COLORS.navy, borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
-  photoBtnText: { color: COLORS.white, fontWeight: '700', fontSize: 14 },
-  photoBtnOutline: { flex: 1, borderWidth: 1, borderColor: COLORS.navy, borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
-  photoBtnOutlineText: { color: COLORS.navy, fontWeight: '700', fontSize: 14 },
+  photoBtn: { backgroundColor: COLORS.navy, borderRadius: 10, paddingVertical: 16, alignItems: 'center' },
+  photoBtnText: { color: COLORS.white, fontWeight: '700', fontSize: 16 },
+  libraryLink: { paddingVertical: 10, alignItems: 'center' },
+  libraryLinkText: { color: COLORS.textSecondary, fontSize: 13, textDecorationLine: 'underline' },
   extractingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginVertical: 10 },
   extractingText: { color: COLORS.textSecondary, fontSize: 13 },
   card: { backgroundColor: COLORS.white, borderRadius: 12, padding: 16, marginTop: 16, borderWidth: 1, borderColor: COLORS.border },
