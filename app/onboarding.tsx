@@ -10,10 +10,12 @@ import { driverApi } from '../lib/api'
 import { COLORS } from '../constants'
 
 // Replaces a long manual form with two document photos + a short confirm step —
-// see the onboarding redesign (panel review, 2026-11-22). PDP and bank details are
-// deliberately NOT part of this flow: PDP isn't required for informal drivers at
-// launch, and bank details only matter for payouts, not for getting into the queue.
-type Step = 'license' | 'vehicle'
+// see the onboarding redesign (panel review, 2026-11-22). PDP is deliberately NOT
+// part of this flow — not required for informal drivers at launch. Bank details are
+// a third, skippable step (added 2026-11-22): not required to reach the queue, but
+// asked for right away so "get paid quickly" is something we can actually promise —
+// a driver who skips it can still add it later from the Profile tab.
+type Step = 'license' | 'vehicle' | 'bank'
 
 const isValidDateString = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && !isNaN(new Date(value).getTime())
 
@@ -41,6 +43,11 @@ export default function OnboardingScreen() {
   const [color, setColor] = useState('')
   const [vin, setVin] = useState('')
   const [capacity, setCapacity] = useState('')
+
+  // Bank step state — optional, skippable
+  const [bankName, setBankName] = useState('')
+  const [accountNumber, setAccountNumber] = useState('')
+  const [accountHolder, setAccountHolder] = useState('')
 
   const [saving, setSaving] = useState(false)
 
@@ -115,7 +122,7 @@ export default function OnboardingScreen() {
     setStep('vehicle')
   }
 
-  const finish = async () => {
+  const continueFromVehicle = async () => {
     if (!regNumber.trim() || !make.trim() || !model.trim() || !year.trim() || !color.trim() || !capacity.trim()) {
       Alert.alert('Missing info', 'Registration number, make, model, year, color and seat capacity are all required.')
       return
@@ -146,8 +153,9 @@ export default function OnboardingScreen() {
       if (natisDocUrl) vehicleFd.append('natis_document', natisDocUrl)
       await driverApi.addVehicle(vehicleFd)
 
-      await refresh()
-      router.replace('/(tabs)')
+      // Don't refresh() yet — that would flip has_vehicle to true and the root
+      // layout would redirect straight to the tabs, skipping the bank step below.
+      setStep('bank')
     } catch (err: any) {
       Alert.alert('Error', err.response?.data?.message || 'Could not complete setup — please try again.')
     } finally {
@@ -155,15 +163,44 @@ export default function OnboardingScreen() {
     }
   }
 
+  const goToTabs = async () => {
+    await refresh()
+    router.replace('/(tabs)')
+  }
+
+  const saveBankAndFinish = async () => {
+    if (!bankName.trim() || !accountNumber.trim() || !accountHolder.trim()) {
+      Alert.alert('Missing info', 'Fill in all three fields, or tap "Skip for now" instead.')
+      return
+    }
+    setSaving(true)
+    try {
+      const fd = new FormData()
+      fd.append('bank_name', bankName.trim())
+      fd.append('bank_account', accountNumber.trim())
+      fd.append('account_holder_name', accountHolder.trim())
+      await driverApi.updateProfile(fd)
+      await goToTabs()
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.message || 'Could not save bank details — you can add them later from your Profile.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const skipBank = () => { goToTabs() }
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.stepIndicator}>Step {step === 'license' ? 1 : 2} of 2</Text>
-        <Text style={styles.title}>{step === 'license' ? "Your driver's licence" : 'Your vehicle'}</Text>
+        <Text style={styles.stepIndicator}>Step {step === 'license' ? 1 : step === 'vehicle' ? 2 : 3} of 3</Text>
+        <Text style={styles.title}>
+          {step === 'license' ? "Your driver's licence" : step === 'vehicle' ? 'Your vehicle' : 'Get paid faster'}
+        </Text>
         <Text style={styles.subtitle}>
-          {step === 'license'
-            ? 'Take a photo of your licence and we’ll fill in the details for you.'
-            : 'Take a photo of your NATIS registration certificate and we’ll fill in the details for you.'}
+          {step === 'license' && 'Take a photo of your licence and we’ll fill in the details for you.'}
+          {step === 'vehicle' && 'Take a photo of your NATIS registration certificate and we’ll fill in the details for you.'}
+          {step === 'bank' && 'Add your bank details now and we can pay you as soon as you start driving — no waiting around after your first trip. You can always add this later from your Profile.'}
         </Text>
 
         {step === 'license' ? (
@@ -194,7 +231,7 @@ export default function OnboardingScreen() {
               <Text style={styles.continueBtnText}>Continue</Text>
             </TouchableOpacity>
           </>
-        ) : (
+        ) : step === 'vehicle' ? (
           <>
             {natisUri ? <Image source={{ uri: natisUri }} style={styles.preview} /> : null}
             <View style={styles.photoButtons}>
@@ -221,11 +258,26 @@ export default function OnboardingScreen() {
               <Field label="Seat Capacity" value={capacity} onChangeText={setCapacity} keyboardType="numeric" placeholder="e.g. 15" />
             </View>
 
-            <TouchableOpacity style={styles.continueBtn} onPress={finish} disabled={saving}>
-              {saving ? <ActivityIndicator color={COLORS.navy} /> : <Text style={styles.continueBtnText}>Finish Setup</Text>}
+            <TouchableOpacity style={styles.continueBtn} onPress={continueFromVehicle} disabled={saving}>
+              {saving ? <ActivityIndicator color={COLORS.navy} /> : <Text style={styles.continueBtnText}>Continue</Text>}
             </TouchableOpacity>
             <TouchableOpacity style={styles.backBtn} onPress={() => setStep('license')}>
               <Text style={styles.backBtnText}>Back</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <View style={styles.card}>
+              <Field label="Bank Name" value={bankName} onChangeText={setBankName} placeholder="e.g. Capitec" />
+              <Field label="Account Number" value={accountNumber} onChangeText={setAccountNumber} keyboardType="numeric" />
+              <Field label="Account Holder Name" value={accountHolder} onChangeText={setAccountHolder} />
+            </View>
+
+            <TouchableOpacity style={styles.continueBtn} onPress={saveBankAndFinish} disabled={saving}>
+              {saving ? <ActivityIndicator color={COLORS.navy} /> : <Text style={styles.continueBtnText}>Save & Finish</Text>}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.backBtn} onPress={skipBank} disabled={saving}>
+              <Text style={styles.backBtnText}>Skip for now</Text>
             </TouchableOpacity>
           </>
         )}
