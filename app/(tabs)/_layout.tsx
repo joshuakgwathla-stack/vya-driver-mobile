@@ -1,9 +1,17 @@
 import { Tabs } from 'expo-router'
 import { Platform } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Home, ClipboardList, Car, Wallet, User, Ticket } from 'lucide-react-native'
 import { COLORS } from '../../constants'
 
 export default function TabsLayout() {
+  // app.json has edgeToEdgeEnabled: true, so on Android the app draws behind the
+  // system nav bar — a hardcoded paddingBottom put the tab bar under it on phones
+  // with gesture navigation (reported as "tabs don't show" on a real device,
+  // 2026-11-22). insets.bottom is the actual reserved system-bar height per device.
+  const insets = useSafeAreaInsets()
+  const bottomInset = Platform.OS === 'android' ? insets.bottom : 0
+
   return (
     <Tabs
       screenOptions={{
@@ -14,9 +22,9 @@ export default function TabsLayout() {
           backgroundColor: COLORS.navy,
           borderTopColor: 'rgba(255,255,255,0.08)',
           borderTopWidth: 1,
-          paddingBottom: Platform.OS === 'ios' ? 22 : 10,
+          paddingBottom: (Platform.OS === 'ios' ? 22 : 10) + bottomInset,
           paddingTop: 8,
-          height: Platform.OS === 'ios' ? 86 : 66,
+          height: (Platform.OS === 'ios' ? 86 : 66) + bottomInset,
         },
         tabBarLabelStyle: {
           fontSize: 11,
