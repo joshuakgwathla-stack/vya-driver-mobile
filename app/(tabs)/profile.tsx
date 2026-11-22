@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
   TouchableOpacity, TextInput, Alert, ActivityIndicator,
-  Platform,
+  Platform, Modal,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useAuth } from '../../lib/auth'
@@ -10,6 +10,11 @@ import { driverApi, usersApi } from '../../lib/api'
 import { COLORS } from '../../constants'
 
 type Tab = 'profile' | 'documents'
+
+// Date fields here are free-text (no native date picker), so catch an invalid or
+// day-first format (e.g. "19/08/2026", the normal South African way to write a date)
+// before it ever reaches the server, rather than letting it round-trip to a crash.
+const isValidDateString = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && !isNaN(new Date(value).getTime())
 
 function DocStatusBadge({ expiry }: { expiry?: string }) {
   if (!expiry) return <View style={[badge.wrap, { backgroundColor: '#f1f5f9' }]}><Text style={[badge.text, { color: COLORS.textMuted }]}>Missing</Text></View>
@@ -34,6 +39,9 @@ export default function ProfileScreen() {
   const [saving, setSaving] = useState(false)
   const [showAddVehicle, setShowAddVehicle] = useState(false)
   const [addingVehicle, setAddingVehicle] = useState(false)
+  const [deleteModal, setDeleteModal] = useState(false)
+  const [deletePassword, setDeletePassword] = useState('')
+  const [deleting, setDeleting] = useState(false)
 
   // Add vehicle form
   const [vMake, setVMake] = useState('')
@@ -66,27 +74,53 @@ export default function ProfileScreen() {
         driverApi.getProfile(),
         driverApi.getVehicles(),
       ])
+      setFirstName(user?.first_name || '')
+      setLastName(user?.last_name || '')
+      setPhone(user?.phone || '')
       if (profRes.status === 'fulfilled') {
         const p = profRes.value.data.data
         setProfile(p)
-        setFirstName(user?.first_name || '')
-        setLastName(user?.last_name || '')
-        setPhone(user?.phone || '')
         setLicenseNumber(p?.license_number || '')
         setIdNumber(p?.id_number || '')
         setPdpNumber(p?.pdp_number || '')
         setBankName(p?.bank_name || '')
-        setAccountNumber(p?.account_number || '')
-        setAccountHolder(p?.account_holder || '')
+        setAccountNumber(p?.bank_account || '')
+        setAccountHolder(p?.account_holder_name || '')
         setLicenseExpiry(p?.license_expiry ? p.license_expiry.split('T')[0] : '')
         setPdpExpiry(p?.pdp_expiry ? p.pdp_expiry.split('T')[0] : '')
+      } else {
+        setProfile(null)
       }
       if (vehRes.status === 'fulfilled') setVehicles(vehRes.value.data.data || [])
     } catch {}
     finally { setLoading(false) }
   }
 
-  const saveProfile = async () => {
+  // Shared by both the Profile tab and Documents tab Save buttons — all fields live in
+  // one component's state regardless of which tab is visible, so either button can create
+  // the profile (if it doesn't exist yet) or update it (if it does), using whatever's
+  // currently filled in across both tabs. This avoids a chicken-and-egg deadlock where
+  // Documents needs a profile to exist but Profile can't create one without an expiry
+  // date that only lives on the Documents tab.
+  const saveAll = async (successMessage: string) => {
+    const isNewProfile = !profile
+    if (isNewProfile && (!licenseNumber.trim() || !idNumber.trim() || !licenseExpiry.trim())) {
+      const missing = [
+        !licenseNumber.trim() && 'License Number (Profile tab)',
+        !idNumber.trim() && 'ID Number (Profile tab)',
+        !licenseExpiry.trim() && 'License Expiry Date (Documents tab)',
+      ].filter(Boolean).join(', ')
+      Alert.alert('Missing info', `Please fill in: ${missing}`)
+      return
+    }
+    if (licenseExpiry.trim() && !isValidDateString(licenseExpiry.trim())) {
+      Alert.alert('Invalid date', 'License Expiry Date must be in YYYY-MM-DD format, e.g. 2026-12-01.')
+      return
+    }
+    if (pdpExpiry.trim() && !isValidDateString(pdpExpiry.trim())) {
+      Alert.alert('Invalid date', 'PDP Expiry Date must be in YYYY-MM-DD format, e.g. 2026-12-01.')
+      return
+    }
     setSaving(true)
     try {
       const fd = new FormData()
@@ -94,10 +128,12 @@ export default function ProfileScreen() {
       fd.append('id_number', idNumber)
       fd.append('pdp_number', pdpNumber)
       fd.append('bank_name', bankName)
-      fd.append('account_number', accountNumber)
-      fd.append('account_holder', accountHolder)
+      fd.append('bank_account', accountNumber)
+      fd.append('account_holder_name', accountHolder)
+      if (licenseExpiry) fd.append('license_expiry', licenseExpiry)
+      if (pdpExpiry) fd.append('pdp_expiry', pdpExpiry)
       await Promise.all([
-        driverApi.updateProfile(fd),
+        isNewProfile ? driverApi.createProfile(fd) : driverApi.updateProfile(fd),
         usersApi.updateProfile((() => {
           const ufd = new FormData()
           ufd.append('first_name', firstName)
@@ -106,25 +142,24 @@ export default function ProfileScreen() {
           return ufd
         })()),
       ])
+      await loadAll()
       await refresh()
-      Alert.alert('Saved', 'Profile updated successfully.')
+      Alert.alert('Saved', successMessage)
     } catch (err: any) {
       Alert.alert('Error', err.response?.data?.message || 'Save failed')
     } finally { setSaving(false) }
   }
 
-  const saveDocs = async () => {
-    setSaving(true)
-    try {
-      const fd = new FormData()
-      if (licenseExpiry) fd.append('license_expiry', licenseExpiry)
-      if (pdpExpiry) fd.append('pdp_expiry', pdpExpiry)
-      await driverApi.updateProfile(fd)
-      await loadAll()
-      Alert.alert('Saved', 'Document dates updated.')
-    } catch (err: any) {
-      Alert.alert('Error', err.response?.data?.message || 'Save failed')
-    } finally { setSaving(false) }
+  const openAddVehicle = () => {
+    if (!profile) {
+      Alert.alert(
+        'Finish your profile first',
+        'Add your license number, ID number and license expiry on the Profile tab before registering a vehicle.'
+      )
+      setTab('profile')
+      return
+    }
+    setShowAddVehicle(true)
   }
 
   const handleAddVehicle = async () => {
@@ -152,6 +187,25 @@ export default function ProfileScreen() {
     } catch (err: any) {
       Alert.alert('Error', err.response?.data?.message || 'Failed to add vehicle.')
     } finally { setAddingVehicle(false) }
+  }
+
+  const handleDeleteAccount = () => {
+    Alert.alert('Delete account', 'This will permanently delete your account and all data. This cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Continue', style: 'destructive', onPress: () => { setDeletePassword(''); setDeleteModal(true) } },
+    ])
+  }
+
+  const confirmDeleteAccount = async () => {
+    if (!deletePassword) { Alert.alert('Required', 'Enter your password to confirm.'); return }
+    setDeleting(true)
+    try {
+      await usersApi.deleteMyAccount(deletePassword)
+      setDeleteModal(false)
+      logout()
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.message || 'Could not delete account. Try again.')
+    } finally { setDeleting(false) }
   }
 
   const handleLogout = () => {
@@ -238,7 +292,6 @@ export default function ProfileScreen() {
               {[
                 { label: 'License Number', value: licenseNumber, set: setLicenseNumber, caps: 'characters' },
                 { label: 'ID Number', value: idNumber, set: setIdNumber, keyboard: 'numeric' },
-                { label: 'PDP Number', value: pdpNumber, set: setPdpNumber, caps: 'characters' },
               ].map(f => (
                 <View key={f.label} style={styles.field}>
                   <Text style={styles.fieldLabel}>{f.label}</Text>
@@ -276,7 +329,7 @@ export default function ProfileScreen() {
               ))}
             </View>
 
-            <TouchableOpacity style={styles.saveBtn} onPress={saveProfile} disabled={saving}>
+            <TouchableOpacity style={styles.saveBtn} onPress={() => saveAll('Profile updated successfully.')} disabled={saving}>
               {saving
                 ? <ActivityIndicator color={COLORS.navy} />
                 : <Text style={styles.saveBtnText}>Save Profile</Text>
@@ -301,6 +354,31 @@ export default function ProfileScreen() {
             <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
               <Text style={styles.logoutBtnText}>Sign Out</Text>
             </TouchableOpacity>
+
+            <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteAccount}>
+              <Text style={styles.deleteBtnText}>Delete my account</Text>
+            </TouchableOpacity>
+
+            <Modal visible={deleteModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setDeleteModal(false)}>
+              <View style={styles.modalWrap}>
+                <Text style={styles.modalTitle}>Delete your account</Text>
+                <Text style={styles.modalSub}>Enter your password to permanently delete your account. This cannot be undone.</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Password"
+                  placeholderTextColor={COLORS.textMuted}
+                  secureTextEntry
+                  value={deletePassword}
+                  onChangeText={setDeletePassword}
+                />
+                <TouchableOpacity style={styles.deleteBtn} onPress={confirmDeleteAccount} disabled={deleting}>
+                  {deleting ? <ActivityIndicator color="#ef4444" /> : <Text style={styles.deleteBtnText}>Delete my account</Text>}
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.cancelBtn} onPress={() => setDeleteModal(false)}>
+                  <Text style={styles.cancelBtnText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </Modal>
           </>
         )}
 
@@ -329,26 +407,12 @@ export default function ProfileScreen() {
                 </View>
               </View>
 
-              {/* PDP */}
-              <View style={styles.docRow}>
-                <View style={styles.docInfo}>
-                  <Text style={styles.docName}>PDP (Professional Driving Permit)</Text>
-                  <DocStatusBadge expiry={profile?.pdp_expiry} />
-                </View>
-                <View style={styles.field}>
-                  <Text style={styles.fieldLabel}>Expiry Date (YYYY-MM-DD)</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={pdpExpiry}
-                    onChangeText={setPdpExpiry}
-                    placeholder="e.g. 2026-03-01"
-                    placeholderTextColor={COLORS.textMuted}
-                    keyboardType="numbers-and-punctuation"
-                  />
-                </View>
-              </View>
+              {/* PDP isn't required for informal drivers at launch (see driver
+                  compliance strategy) — not shown here by default so the screen
+                  doesn't imply it's needed. A driver who already has one can still
+                  have it recorded by an admin; it just isn't part of onboarding. */}
 
-              <TouchableOpacity style={styles.saveBtn} onPress={saveDocs} disabled={saving}>
+              <TouchableOpacity style={styles.saveBtn} onPress={() => saveAll('Document dates updated.')} disabled={saving}>
                 {saving
                   ? <ActivityIndicator color={COLORS.navy} />
                   : <Text style={styles.saveBtnText}>Save Driver Documents</Text>
@@ -363,7 +427,7 @@ export default function ProfileScreen() {
 
             {/* Add Vehicle */}
             {!showAddVehicle ? (
-              <TouchableOpacity style={styles.addVehicleBtn} onPress={() => setShowAddVehicle(true)}>
+              <TouchableOpacity style={styles.addVehicleBtn} onPress={openAddVehicle}>
                 <Text style={styles.addVehicleBtnText}>+ Add Vehicle</Text>
               </TouchableOpacity>
             ) : (
@@ -415,6 +479,14 @@ function VehicleDocCard({ vehicle: v, onSaved }: { vehicle: any; onSaved: () => 
   const [saving, setSaving] = useState(false)
 
   const save = async () => {
+    if (roadworthyExpiry.trim() && !isValidDateString(roadworthyExpiry.trim())) {
+      Alert.alert('Invalid date', 'Roadworthy Expiry Date must be in YYYY-MM-DD format, e.g. 2026-12-01.')
+      return
+    }
+    if (licenseDiskExpiry.trim() && !isValidDateString(licenseDiskExpiry.trim())) {
+      Alert.alert('Invalid date', 'License Disk Expiry Date must be in YYYY-MM-DD format, e.g. 2026-12-01.')
+      return
+    }
     setSaving(true)
     try {
       const fd = new FormData()
@@ -539,6 +611,14 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.offWhite, borderWidth: 1, borderColor: COLORS.border,
   },
   cancelBtnText: { fontSize: 14, fontWeight: '600', color: COLORS.textSecondary },
+  deleteBtn: {
+    borderRadius: 12, padding: 14, alignItems: 'center',
+    backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fca5a5',
+  },
+  deleteBtnText: { color: '#ef4444', fontWeight: '700', fontSize: 14 },
+  modalWrap: { flex: 1, padding: 24, gap: 16, justifyContent: 'center' },
+  modalTitle: { fontSize: 20, fontWeight: '700', color: COLORS.navy },
+  modalSub: { fontSize: 14, color: COLORS.textSecondary },
   legalLinks: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 },
   legalLink: { fontSize: 13, color: COLORS.gold, fontWeight: '600', textDecorationLine: 'underline' },
   legalDot: { fontSize: 13, color: COLORS.textMuted },

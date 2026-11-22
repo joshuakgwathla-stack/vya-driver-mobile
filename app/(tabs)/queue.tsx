@@ -114,7 +114,10 @@ export default function QueueScreen() {
       return
     }
     if (!selectedVehicle) {
-      Alert.alert('No vehicle', 'Add a vehicle on the web driver platform first.')
+      Alert.alert('No vehicle', 'Add a vehicle on your Profile tab first.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Go to Profile', onPress: () => router.push('/profile') },
+      ])
       return
     }
     setJoining(true)

@@ -15,8 +15,15 @@ function RootNavigator() {
   useEffect(() => {
     if (loading || !fontsLoaded) return
     const inAuth = segments[0] === '(auth)'
+    const inOnboarding = segments[0] === 'onboarding'
+    // Onboarding-completeness is one computed check, not several — matches
+    // /auth/me's driver_profile_id + has_vehicle (panel review, 2026-11-22).
+    const onboardingIncomplete = user?.role === 'driver' && (!user.driver_profile_id || !user.has_vehicle)
+
     if (!user && !inAuth) router.replace('/(auth)/welcome')
-    else if (user && inAuth) router.replace('/(tabs)')
+    else if (user && inAuth) router.replace(onboardingIncomplete ? '/onboarding' : '/(tabs)')
+    else if (user && onboardingIncomplete && !inOnboarding) router.replace('/onboarding')
+    else if (user && !onboardingIncomplete && inOnboarding) router.replace('/(tabs)')
   }, [user, loading, fontsLoaded, segments])
 
   if (loading || !fontsLoaded) {
@@ -30,6 +37,7 @@ function RootNavigator() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(auth)" />
+      <Stack.Screen name="onboarding" />
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="trip/[id]" />
       <Stack.Screen name="messages/[bookingId]" />

@@ -10,6 +10,8 @@ interface User {
   phone: string
   profile_picture?: string
   role: string
+  driver_profile_id?: string | null
+  has_vehicle?: boolean
 }
 
 interface AuthContextType {
@@ -46,18 +48,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  // Both the login and register responses carry only a partial user (no
+  // driver_profile_id/has_vehicle) — fetch the full /auth/me shape right after so
+  // onboarding-completeness gating always has what it needs, from the first screen.
   const login = async (email: string, password: string) => {
     const { data } = await authApi.login(email, password)
     await SecureStore.setItemAsync('accessToken', data.data.accessToken)
     await SecureStore.setItemAsync('refreshToken', data.data.refreshToken)
-    setUser(data.data.user)
+    const me = await authApi.me()
+    setUser(me.data.data)
   }
 
   const register = async (formData: any) => {
     const { data } = await authApi.register(formData)
     await SecureStore.setItemAsync('accessToken', data.data.accessToken)
     await SecureStore.setItemAsync('refreshToken', data.data.refreshToken)
-    setUser(data.data.user)
+    const me = await authApi.me()
+    setUser(me.data.data)
   }
 
   const logout = async () => {

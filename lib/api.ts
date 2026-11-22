@@ -43,10 +43,21 @@ export const authApi = {
   register: (data: any) => api.post('/auth/register', data),
   me: () => api.get('/auth/me'),
   logout: (refreshToken: string) => api.post('/auth/logout', { refreshToken }),
+  forgotPassword: (email: string) => api.post('/auth/forgot-password', { email }),
 }
 
 export const driverApi = {
   getProfile: () => api.get('/driver/profile'),
+  // Reads a licence or NATIS photo/PDF and returns suggested fields + the uploaded
+  // document's URL — call this before createProfile/addVehicle, not instead of them.
+  extractDocument: (documentType: 'license' | 'natis', fileUri: string, mimeType: string) => {
+    const fd = new FormData()
+    fd.append('document_type', documentType)
+    fd.append('document', { uri: fileUri, name: `${documentType}.${mimeType.split('/')[1] || 'jpg'}`, type: mimeType } as any)
+    return api.post('/driver/documents/extract', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+  },
+  createProfile: (data: FormData) =>
+    api.post('/driver/profile', data, { headers: { 'Content-Type': 'multipart/form-data' } }),
   updateProfile: (data: FormData) =>
     api.patch('/driver/profile', data, { headers: { 'Content-Type': 'multipart/form-data' } }),
   getVehicles: () => api.get('/driver/vehicles'),
@@ -125,4 +136,5 @@ export const usersApi = {
   getNotifications: (params?: any) => api.get('/users/notifications', { params }),
   markNotificationRead: (id: string) => api.patch(`/users/notifications/${id}/read`),
   markAllRead: () => api.patch('/users/notifications/read-all'),
+  deleteMyAccount: (password: string) => api.delete('/users/me', { data: { password } }),
 }
